@@ -1,0 +1,11 @@
+<div style="max-width:640px;font-family:Arial,sans-serif;color:#253347">
+  <p style="color:#546579;font-size:13px">Redmine · Backup operations</p>
+  <div style="border:1px solid #dbe3eb;border-left:4px solid #dc7840;padding:24px;border-radius:6px">
+    <h2 style="margin-top:0"><%= @heading %></h2>
+    <p>Event: <strong><%= @event['code'].tr('_', ' ') %></strong></p>
+    <p>Run: <%= @event['run_id'] %><br>Time: <%= @event['at'] %></p>
+    <p>Last verified local capture: <%= @event['last_local'] || 'None recorded' %><br>Last protected remote backup: <%= @event['last_remote'] || 'None recorded' %></p>
+    <p>Review the local capture and each destination separately. A failed upload can be retried without taking a new database backup.</p>
+    <p><%= link_to 'View backup details', @details_url, style: 'color:#fff;background:#285d87;padding:10px 16px;text-decoration:none;border-radius:4px' %></p>
+  </div>
+</div>

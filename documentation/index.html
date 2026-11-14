@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Redmine Backup — Documentation</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5f7;color:#27313e;font:15px/1.65 system-ui,sans-serif}
+nav{position:fixed;inset:0 auto 0 0;width:230px;background:#27313e;padding:25px;overflow:auto;color:#fff}
+nav strong{display:block;margin-bottom:20px;font-size:20px}nav a{display:block;color:#d9e4ee;text-decoration:none;padding:7px 0}
+main{margin-left:230px;padding:30px;max-width:1250px}section{background:#fff;border:1px solid #dde3e9;border-radius:8px;padding:28px;margin-bottom:26px;scroll-margin:20px}
+h1,h2,h3{line-height:1.25;color:#263b51}table{border-collapse:collapse;width:100%;font-size:14px}th,td{border:1px solid #dce2e8;padding:8px 11px;text-align:left;vertical-align:top}th{background:#eaf0f5}
+pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflow-wrap:anywhere}a{color:#1c608e}li{margin-bottom:7px}
+@media(max-width:800px){nav{position:relative;width:auto}nav a{display:inline-block;margin-right:18px}main{margin:0;padding:14px}section{padding:18px}}
+@media print{nav{display:none}main{margin:0;padding:0}section{border:0;break-before:page}a{color:inherit}}
+</style></head><body><nav><strong>Redmine Backup</strong><a href="#plan">Full plan</a><a href="#installation">Installation</a><a href="#configuration">Configuration</a><a href="#recovery">Recovery</a><a href="#recovery-worksheet">Recovery worksheet</a><a href="#storage">Storage catalog</a><a href="#security">Security</a><a href="#implementation">Implementation</a><a href="#deployment">Deployment</a><a href="#validation">Validation</a><a href="#reference">References</a><hr><a href="README.md">Documentation index</a></nav><main>
+<section id="plan" aria-label="Full plan"><span id="plan-top"></span>
+<h1 id="plan-label-Redmine+backup+plan"><a href="#plan-label-Redmine+backup+plan">Redmine backup plan</a></h1>
+
+<p>This is the current scope of the native Ruby implementation. Installation/configuration instructions are in <a href="INSTALLATION_md.html">INSTALLATION.md</a> and <a href="CONFIGURATION_md.html">CONFIGURATION.md</a>; the provider catalog is in <a href="STORAGE_md.html">STORAGE.md</a>. The earlier Python/rclone/timer/Apps Script prototypes are superseded and are not part of this project.</p>
+
+<h2 id="plan-label-Policy"><a href="#plan-label-Policy">Policy</a></h2>
+
+<table role="table">
+<thead>
+<tr>
+<th>Item</th>
+<th>Policy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Database</td>
+<td>Full PostgreSQL backup every day</td>
+</tr>
+<tr>
+<td>Application/files</td>
+<td>Full backup every day, with no incremental dependency chains</td>
+</tr>
+<tr>
+<td>Schedule</td>
+<td>Configurable time and timezone; default 20:00 Asia/Kolkata</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>Redmine stays online during capture</td>
+</tr>
+<tr>
+<td>Local retention</td>
+<td>Configurable successful dates; default 3</td>
+</tr>
+<tr>
+<td>Remote retention</td>
+<td>Configurable successful dates per destination; default 10, with per-target override</td>
+</tr>
+<tr>
+<td>Secondary</td>
+<td>Optional, disabled by default; Redundant or Failover when enabled</td>
+</tr>
+<tr>
+<td>Packaging</td>
+<td>Separate components or a single ZIP/ZIP64; no 7z</td>
+</tr>
+<tr>
+<td>Encryption</td>
+<td>No additional archive encryption; private control credentials remain encrypted</td>
+</tr>
+<tr>
+<td>Bandwidth</td>
+<td>No plugin throttle; provider-directed retry/backoff still applies</td>
+</tr>
+<tr>
+<td>Management</td>
+<td>Redmine administrator UI and a supervised native Ruby worker</td>
+</tr>
+<tr>
+<td>Database credentials</td>
+<td>Derived from Redmine’s resolved primary configuration</td>
+</tr>
+<tr>
+<td>Alerts</td>
+<td>Existing Redmine mail delivery; selected existing users/groups</td>
+</tr>
+<tr>
+<td>Gateway</td>
+<td>Excluded</td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="plan-label-Recovery+coverage"><a href="#plan-label-Recovery+coverage">Recovery coverage</a></h2>
+
+<p>Each recovery point includes the full Redmine database, application source/customizations, plugins, themes, assets, dependency lockfiles, snapshot-referenced attachments, required external configuration/environment files, Rails key material, SMTP state/secrets and Redmine service definitions. Configured provider SSH key/known-host files and PostgreSQL TLS files are included when applicable/readable.</p>
+
+<p>Automatic discovery is supplemented by explicit additional paths. Newly discovered coverage is flagged. Missing required paths fail capture rather than being silently omitted. Gateway applications/settings/services, Let’s Encrypt material, disposable logs/caches and the local backup store itself are excluded.</p>
+
+<p>A manifest records runtime versions, source/archive mappings, captured files, artifact sizes and SHA256 hashes. A private bootstrap preserves effective settings, required key/configuration material, grants and plugin control history for offline recovery. No completed historical backup directories are recursively included in a new backup.</p>
+
+<h2 id="plan-label-Scheduling+and+execution"><a href="#plan-label-Scheduling+and+execution">Scheduling and execution</a></h2>
+
+<p>The native worker evaluates a durable schedule/queue. A missed schedule after an outage triggers one fresh current backup once the app/database/worker are ready. It does not invent historical recovery points for every missed day. Explicit Pause is respected; manually requested work does not suppress the next scheduled slot.</p>
+
+<p>A process lock prevents concurrent writers across startup hooks/workers/admin clicks. Heartbeats show liveness; durable state identifies interrupted work. Incomplete capture is restarted; valid captured payloads can proceed to packaging/upload retry. A still-running hung process is not automatically overtaken by another writer.</p>
+
+<p>Capture uses an exported PostgreSQL repeatable-read, read-only snapshot for the dump and referenced-attachment inventory. Attachment data is checked for size and available stored digest while copying; archive components receive SHA256 checksums. Streaming, disk reserve checks, process timeouts and worker CPU/I/O priority limit impact. The snapshot does not claim an atomic whole-filesystem image.</p>
+
+<h2 id="plan-label-Packaging+and+upload"><a href="#plan-label-Packaging+and+upload">Packaging and upload</a></h2>
+
+<p>Separate components are the default. Single-ZIP mode wraps the same dump/archive/bootstrap/manifest/guide and checks the resulting archive. Already compressed components are stored without recompression. Packaging retry reuses verified components; upload retry reuses verified payloads without another dump.</p>
+
+<p>Initial adapters are Google Drive, OneDrive <code>/me/drive</code>, SFTP and S3-compatible endpoints. Other Ruby-capable services are cataloged as future adapters, not implied implemented support. Authentication, resumability, integrity checks and ownership-scoped retention are provider-specific. A completion marker is published only after all required artifacts verify.</p>
+
+<p>The optional secondary supports:</p>
+<ul><li>
+<p><strong>Disabled:</strong> primary verification is sufficient; secondary fields, checks, uploads and alerts are not required.</p>
+</li><li>
+<p><strong>Redundant:</strong> attempt both copies every run, even after primary failure; both must verify. One success is Partially Protected and pending local artifacts stay protected.</p>
+</li><li>
+<p><strong>Failover:</strong> exhaust primary upload retries, then use the same payload at secondary. Report Failover Used, alert on primary failure, and try primary first on the next run.</p>
+</li></ul>
+
+<p>Each destination has separate credentials, sessions, completion status and retention. Historical retries retain their original target identity; changing targets cannot silently redirect old jobs or delete a different namespace.</p>
+
+<h2 id="plan-label-Retention+and+provider+protection"><a href="#plan-label-Retention+and+provider+protection">Retention and provider protection</a></h2>
+
+<p>Counts are distinct successful backup dates, not wall-clock age. Zero, negative, fractional and malformed retention inputs are rejected. Pending/unuploaded local sets and the last good recovery point are protected even if limits are exceeded.</p>
+
+<p>Provider versioning and immutable retention locks are separate opt-in capabilities. The initial implementation checks existing S3 versioning/Object Lock support and verifies requested object protection. It does not enable irreversible bucket-wide policies or broaden credentials. Unsupported/failed protection is reported separately.</p>
+
+<p>Locked cleanup is deferred without invalidating a verified upload. Retention can exceed configured counts while locks apply. Old versions, provider recycle bins, duplicate markers and orphaned partials can consume additional storage. Cleanup never blindly sweeps a bucket/folder or bypasses a hold.</p>
+
+<h2 id="plan-label-Alerts-2C+visibility+and+recovery"><a href="#plan-label-Alerts-2C+visibility+and+recovery">Alerts, visibility and recovery</a></h2>
+
+<p>Alerts use the existing Redmine mailer and simple HTML/plain-text templates. Existing users/groups resolve to active deduplicated recipients. Failure notifications use bounded retry and per-recipient delivery tracking. Test Notification is available; recovery confirmations and scheduled daily-success notifications are optional/off by default.</p>
+
+<p>The dashboard separates capture/packaging, primary/secondary upload verification, requested protection and cleanup. It shows safe failure codes, heartbeat, coverage changes, audit history and setup checks. Selecting an alert recipient grants no backup-administration privilege. Native alerts cannot be sent while the server/worker itself is down.</p>
+
+<p>The offline verifier and bootstrap helper work without the original Redmine database. Recovery Mode blocks scheduling, cleanup/uploads and operational notifications on a restored/test instance until deliberate activation. The restored schedule remains paused. A recovery drill must also verify the separately provisioned gateway/HTTPS infrastructure.</p>
+
+<h2 id="plan-label-Acceptance"><a href="#plan-label-Acceptance">Acceptance</a></h2>
+
+<p>Validate administrator access, settings persistence, configurable retention, both secondary modes, scheduling/catch-up, lock exclusion, encrypted state, interrupted upload/packaging retry, integrity checks, ownership-safe cleanup/lock deferral, existing mail delivery, actual PostgreSQL capture and attachment recovery. Unit/isolated integration checks are documented in <a href="VALIDATION_md.html">VALIDATION.md</a>. A chosen-provider live upload and full restore drill remain separate operational validations.</p>
+
+<p>Manually pinned recovery points and more proactive storage/credential-expiry warnings remain optional future enhancements. Current implemented boundaries are recorded in <a href="IMPLEMENTATION_md.html">IMPLEMENTATION.md</a>.</p>
+</section>
+<section id="installation" aria-label="Installation"><span id="installation-top"></span>
+<h1 id="installation-label-Installation"><a href="#installation-label-Installation">Installation</a></h1>
+
+<p>Use a staging Redmine first. This repository does not deploy itself.</p>
+<ol><li>
+<p>Check Redmine 7.x, its Ruby/Rails versions, PostgreSQL, free space and the existing lockfile. Preserve the working Redmine installation using your existing operational procedure.</p>
+</li><li>
+<p>Clone this repository into <code>REDMINE_ROOT/plugins/redmine_backup_plugin</code>. The repository basename may differ; the plugin explicitly registers its actual directory.</p>
+</li><li>
+<p>As the Redmine service account, run <code>bundle install</code> from <code>REDMINE_ROOT</code>. Inspect the dependency changes; do not automatically upgrade unrelated Redmine gems. S3 and SFTP require their declared gems; ZIP and PostgreSQL must match Redmine’s current lockfile.</p>
+</li><li>
+<p>No plugin table migrations are needed. Restart the Redmine web service so the routes, menu and mailer are loaded.</p>
+</li><li>
+<p>Open <strong>Administration → Backups</strong>. Choose the local directory before creating the first backup. It defaults to a private <code>redmine-backups</code> subdirectory of <code>Attachment.storage_path</code>. Its existing parent must be writable, persistent and non-public.</p>
+</li><li>
+<p>Configure provider settings, retention and alert recipients. Add any external Redmine paths the discovery preview cannot identify. Save, then connect OAuth if applicable.</p>
+</li><li>
+<p>Configure the native worker as a supervised process. Copy the template only after replacing its absolute paths/service user and adding the same environment files used by the web service. Do not run the worker as root.</p>
+</li><li>
+<p>Confirm the heartbeat and path checks. Queue a test notification and a manual backup. Check capture, every required destination, integrity verification and cleanup status independently.</p>
+</li><li>
+<p>Perform the documented isolated restore drill, then enable the schedule. The initial implementation is not production-validated merely because unit tests pass.</p>
+</li></ol>
+
+<h2 id="installation-label-Worker+systemd+example"><a href="#installation-label-Worker+systemd+example">Worker systemd example</a></h2>
+
+<p>Edit <code>templates/redmine-backup-worker.service</code> for the actual service account, Redmine root and absolute Bundler executable. Include the environment/secret inputs required by Redmine and its SMTP delivery plugin. OS service configuration is installation infrastructure; daily operation and backup policy are administered in Redmine.</p>
+
+<pre>sudo systemctl daemon-reload
+sudo systemctl enable --now redmine-backup-worker.service
+sudo systemctl status redmine-backup-worker.service</pre>
+
+<p>The worker evaluates the schedule every 15 seconds and writes a heartbeat during long operations. It uses a filesystem process lock, not a lease that lets a second writer overtake a still-running job. A crashed process releases the kernel lock; durable job state guides recovery. A hung process requires supervisor/operator intervention.</p>
+
+<h2 id="installation-label-Local+directory+migration"><a href="#installation-label-Local+directory+migration">Local directory migration</a></h2>
+
+<p>The directory is editable through the UI before there are queued jobs or backup records. Existing data is not moved automatically. For an existing installation, pause scheduling, stop the worker and web writes, copy the entire private directory preserving ownership/modes to the reviewed destination, update the plugin’s non-secret <code>local_directory</code> setting through a controlled Rails maintenance session, then restart and validate history/keys/paths. Keep the original until validation succeeds. Do not point a new empty state directory at an existing remote namespace.</p>
+
+<h2 id="installation-label-Uninstall"><a href="#installation-label-Uninstall">Uninstall</a></h2>
+
+<p>Pause scheduling, stop/disable the backup worker and remove the plugin directory using the normal Redmine maintenance procedure. Preserve the private backup state, recovery keys and remote backups deliberately; uninstall does not automatically delete them. No database tables are dropped. The Redmine plugin settings entry can be removed through an explicitly authorized maintenance action if desired.</p>
+</section>
+<section id="configuration" aria-label="Configuration"><span id="configuration-top"></span>
+<h1 id="configuration-label-Configuration+and+storage"><a href="#configuration-label-Configuration+and+storage">Configuration and storage</a></h1>
+
+<p>All routine settings are on <strong>Administration → Backups</strong>. Secret inputs are write-only: blank preserves the stored value. Non-secret settings use Redmine’s plugin Setting entry. Credentials, refresh grants, upload sessions, audit and queue state are encrypted in a private filesystem directory using a key derived from the existing Rails secret.</p>
+
+<h2 id="configuration-label-Retention"><a href="#configuration-label-Retention">Retention</a></h2>
+
+<table role="table">
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Local successful dates to keep</td>
+<td>3</td>
+<td>Keep the newest verified local capture for each retained successful date</td>
+</tr>
+<tr>
+<td>Default remote successful dates to keep</td>
+<td>10</td>
+<td>Default for each destination independently</td>
+</tr>
+<tr>
+<td>Destination remote dates to keep</td>
+<td>Blank</td>
+<td>Override the remote default for that specific destination</td>
+</tr>
+</tbody>
+</table>
+
+<p>Each count accepts an integer from 1 to 3650. Zero, negative, fractional and malformed values are rejected. Counts represent distinct successful backup dates, not a wall-clock expiry. Multiple successes on one date do not each consume a date slot. Changes take effect during the next successful upload/retention pass, not immediately on Save.</p>
+
+<p>Retention protects unuploaded local sets, local sets awaiting a required redundant copy, the latest local capture, and the last recognized complete remote point. Limits can be exceeded while uploads/locks are pending. Deleting one remote set never means deleting unrelated directories or another destination. Provider versions, deleted-file bins and duplicate markers may consume additional remote storage outside the visible successful-date count.</p>
+
+<h2 id="configuration-label-Secondary+destination"><a href="#configuration-label-Secondary+destination">Secondary destination</a></h2>
+
+<p>Disabled by default: no secondary settings/checks/uploads/alerts are required. When enabled choose:</p>
+<ul><li>
+<p><strong>Redundant:</strong> attempt both destinations on every run, including when primary fails. Both verified copies satisfy protection. One verified copy is Partially Protected; its local payload remains protected for retry.</p>
+</li><li>
+<p><strong>Failover:</strong> exhaust bounded primary upload retries, then upload to secondary using the same artifacts. Next run tries primary first. A valid fallback gives Failover Used status while the primary failure generates an alert.</p>
+</li></ul>
+
+<p>An upload retry skips already verified targets. Deliberate primary backfill of a failover set is supported while its local artifacts remain available. Changing provider/destination does not redirect historical retries: each run retains its original configuration. Remote cleanup is skipped when the current destination identity differs from that historical target.</p>
+
+<h2 id="configuration-label-Google+Drive"><a href="#configuration-label-Google+Drive">Google Drive</a></h2>
+
+<p>Register a browser OAuth client with the callback shown below. Enter client ID, client secret where required, and a destination folder ID. Save, then use Connect Storage. Scope is <code>drive.file</code> with offline authorization; it grants access to files created/authorized for this application, not unrestricted Drive access. Existing destination folders/Shared Drive policies must permit the application identity; select/provision an application-accessible folder and validate the actual tenant.</p>
+
+<p>The adapter uses resumable upload sessions. Shared Drive authorization and tenant-specific behavior require a live compatibility test; do not assume consumer Drive behavior proves Shared Drive support. Reconnect through the same slot if an expired/revoked grant prevents refresh.</p>
+
+<h2 id="configuration-label-OneDrive"><a href="#configuration-label-OneDrive">OneDrive</a></h2>
+
+<p>Register a Microsoft Entra HTTPS Web application with delegated <code>Files.ReadWrite</code> and offline access. Enter client ID, tenant ID (blank means organizations), client secret if required by the application type, and the destination drive item/folder ID. Save and connect through browser sign-in with S256 PKCE. Microsoft consumer accounts may need <code>consumers</code> or <code>common</code> and a matching registration audience.</p>
+
+<p>The initial adapter addresses the signed-in user’s <code>/me/drive</code>. SharePoint document-library routing is a future adapter extension, not implemented by accepting an arbitrary SharePoint folder ID. Upload sessions and preauthenticated downloads are stored privately; Graph bearer tokens are not forwarded to signed download hosts.</p>
+
+<p>For both OAuth providers register exactly:</p>
+
+<pre>https://YOUR-REDMINE-HOST[/relative-root]/admin/backups/oauth/callback</pre>
+
+<p>The callback is derived from Redmine’s HTTPS host and relative-root settings. OAuth state is one-use, time-limited and bound to the selected destination. These upload registrations are separate from any SMTP OAuth application.</p>
+
+<h2 id="configuration-label-SFTP"><a href="#configuration-label-SFTP">SFTP</a></h2>
+
+<p>Configure host, SSH port, username, existing remote directory and a local known_hosts file. Supply a readable private-key path or a password. Host-key verification is mandatory; populate and verify known_hosts independently. The plugin does not trust keys on first use, create remote directory trees or run remote shell commands. Existing partial bytes are compared with the local source before offset resume; final verification uses streamed read-back.</p>
+
+<h2 id="configuration-label-S3+compatible"><a href="#configuration-label-S3+compatible">S3 compatible</a></h2>
+
+<p>Configure bucket, region and optional key prefix. Leave endpoint blank for AWS; R2/B2 require the provider’s HTTPS endpoint. Use an IAM role/default SDK credential chain or access key/secret/session token. Only the installation-owned namespace is managed. Multipart sessions are checkpointed; multipart ETags are not treated as MD5 checksums. Verification reads back the actual bytes.</p>
+
+<p><strong>Require versioning</strong> checks that bucket versioning already exists. <strong>Require retention lock</strong> additionally checks pre-enabled Object Lock and requests a COMPLIANCE retain-until period. These are opt-in per destination; the plugin never enables bucket-wide irreversible policies. Verify that the intended lock period and cost are acceptable before use. Protected uploads are checked again through object metadata.</p>
+
+<p>Locked cleanup shows Deferred Locked. It does not invalidate a verified upload. Noncurrent versions and deleted-marker history may remain subject to provider lifecycle policies. S3-compatible endpoints do not automatically support AWS’s versioning/Object Lock APIs; capability failures are reported.</p>
+
+<h2 id="configuration-label-Retry+and+history"><a href="#configuration-label-Retry+and+history">Retry and history</a></h2>
+
+<p>Back Up Now, Retry Upload, Retry Packaging and Test Notification enqueue durable work. The browser does not perform long-running capture or transfer. History separates local capture, packaging, primary/secondary verification, requested protection and cleanup. Retry Packaging checks the preserved manifest/components before creating a new wrapper. No bandwidth throttle is configured, but provider Retry-After/backoff remains in effect.</p>
+
+<p>Check Setup queues tool/path/disk/provider capability checks and shows their results on the dashboard. Backup/upload failures always generate a deduplicated notification request. Recovery confirmations and scheduled daily-success summaries are optional/off by default. Emails include the run/event, timestamp, last local/remote success and one administrator details link. Recipient selection is resolved against active current users/group members at delivery time.</p>
+</section>
+<section id="recovery" aria-label="Recovery"><span id="recovery-top"></span>
+<h1 id="recovery-label-Redmine+recovery+guide"><a href="#recovery-label-Redmine+recovery+guide">Redmine recovery guide</a></h1>
+
+<p>This guide is included in every backup. Test it on an isolated replacement host before relying on a backup. Recovery is an administrator operation, not an automatic production restore.</p>
+
+<h2 id="recovery-label-1.+Select+and+verify"><a href="#recovery-label-1.+Select+and+verify">1. Select and verify</a></h2>
+
+<p>Choose a complete verified recovery set. Download all components, or the single ZIP. If using ZIP, unpack into a new private staging directory after checking that entry names contain no absolute paths or parent traversal. The ZIP contains <code>manifest.json</code>, <code>database.dump</code>, <code>application.tar.gz</code>, <code>bootstrap.json</code> and this guide. Separate mode provides the same files directly.</p>
+
+<p>Run the repository’s standalone verifier with Ruby:</p>
+
+<pre>ruby bin/redmine-backup-verify /private/staging/manifest.json
+pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
+
+<p>The verifier checks file sizes and SHA256 against the manifest. The dump catalog check does not prove successful restore. The manifest records source roots and external-file archive mappings. Never publish <code>bootstrap.json</code>: it includes private database/provider configuration and Rails key material, because archive encryption was deliberately not requested.</p>
+
+<h2 id="recovery-label-2.+Rebuild+the+environment"><a href="#recovery-label-2.+Rebuild+the+environment">2. Rebuild the environment</a></h2>
+
+<p>Provision a supported Linux host and matching Ruby, Redmine/Rails, PostgreSQL client/server and application dependencies using the captured application/Gemfile.lock. Review the captured version metadata. Provision Redmine’s service account, private directories, external dependencies and database role. Recreate role privileges deliberately; this is a single-database dump, not a whole-cluster/global-role backup.</p>
+
+<p>Restore the application archive into private staging, not directly over an operating installation. Inspect archive member names, symlinks and <code>external_roots</code> before extraction. <code>application/</code> maps to the Redmine root, <code>attachments/</code> maps to its attachment storage, and each <code>external/N/</code> maps to the corresponding external root in the manifest. Restore external state/configuration/service files to reviewed locations with appropriate ownership and modes. Preserve Rails secret/key material and SMTP private state together; without matching keys, encrypted settings/grants cannot be decrypted.</p>
+
+<p>Install the backup plugin from this repository if its files were not already captured, and install the locked application dependencies. Keep the worker stopped.</p>
+
+<h2 id="recovery-label-3.+Restore+the+database"><a href="#recovery-label-3.+Restore+the+database">3. Restore the database</a></h2>
+
+<p>Create an empty, correctly encoded database owned by the intended Redmine role. Configure authentication without exposing passwords on command lines. After reviewing the dump and role mapping, restore it using <code>pg_restore --exit-on-error --no-owner --role=REVIEWED_REDMINE_ROLE --dbname=NEW_DATABASE database.dump</code> with suitable connection parameters/environment. Do not restore over a running production database. Check every restore error and application compatibility before running any required Redmine migrations.</p>
+
+<p>Use the captured resolved database configuration only as a private reference; update the restored Redmine configuration for the replacement host. Existing Redmine plugin settings will be restored by the database dump. The private bootstrap is available if configuration must be reconstructed outside a working Redmine instance; it is not automatically imported by an unauthenticated endpoint.</p>
+
+<h2 id="recovery-label-4.+Force+Recovery+Mode+before+starting"><a href="#recovery-label-4.+Force+Recovery+Mode+before+starting">4. Force Recovery Mode before starting</a></h2>
+
+<p>Set <code>REDMINE_BACKUP_RECOVERY=1</code> in the replacement Redmine and worker environments. Alternatively place a file named <code>RECOVERY</code> inside the private backup directory’s <code>control/</code> folder. A different host identity also triggers Recovery Mode, but explicit recovery protection should always be used for test/cloned hosts.</p>
+
+<p>Reconstruct the private plugin control directory from the verified bootstrap using the standalone helper after restoring the same Rails secret and installing the application dependencies:</p>
+
+<pre>bundle exec ruby plugins/redmine_backup_plugin/bin/redmine-backup-bootstrap \
+  /private/staging/bootstrap.json /private/new-backup-store</pre>
+
+<p>The destination must be empty with a writable existing parent. This restores encrypted metadata, grants and audit/history with a mandatory Recovery marker. Historical local payloads are marked unavailable because old backup directories are not recursively included in each new backup. Pending jobs are cleared. Review the generated private <code>restored-plugin-settings.json</code>, including paths and recipients, and import its non-secret settings through an explicitly controlled Rails maintenance session:</p>
+
+<pre class="ruby"><span class="ruby-constant">RAILS_ENV</span>=<span class="ruby-identifier">production</span> <span class="ruby-identifier">bundle</span> <span class="ruby-identifier">exec</span> <span class="ruby-identifier">rails</span> <span class="ruby-identifier">runner</span> \
+  <span class="ruby-string">&#39;Setting.plugin_redmine_backup_plugin = JSON.parse(File.read(ARGV.fetch(0)))&#39;</span> \
+  <span class="ruby-operator">/</span><span class="ruby-identifier">private</span><span class="ruby-operator">/</span><span class="ruby-identifier">new</span><span class="ruby-operator">-</span><span class="ruby-identifier">backup</span><span class="ruby-operator">-</span><span class="ruby-identifier">store</span><span class="ruby-operator">/</span><span class="ruby-identifier">restored</span><span class="ruby-operator">-</span><span class="ruby-identifier">plugin</span><span class="ruby-operator">-</span><span class="ruby-identifier">settings</span>.<span class="ruby-identifier">json</span>
+</pre>
+
+<p>Keep the worker stopped during this operation. The restored Rails key must match the key in the private bootstrap. Reconnect cloud grants if they have expired or rotated since capture. Do not accidentally create a second active installation managing the old remote namespace.</p>
+
+<p>Start only the web service first. Check administrator login, issue/project data, attachments, themes/plugins, configuration and existing SMTP integration. Inspect the Backups dashboard. Confirm scheduling, cleanup and operational email remain blocked in Recovery Mode. Gateway/HTTPS infrastructure is excluded from this backup and must be provisioned separately.</p>
+
+<h2 id="recovery-label-5.+Activate+deliberately"><a href="#recovery-label-5.+Activate+deliberately">5. Activate deliberately</a></h2>
+
+<p>Fence the old server so it cannot resume jobs. Remove the recovery environment override, then use Activate This Restored Instance. The schedule remains paused. Review storage destinations, recipient selections, keys, retention and source coverage; ensure paths fit the replacement host. Run an isolated backup/upload verification and test notification when appropriate, then enable scheduling.</p>
+
+<p>Record the actual restore time, errors, recovery point and validation results. Checksum verification alone is not a successful restoration drill.</p>
+</section>
+<section id="recovery-worksheet" aria-label="Recovery worksheet"><span id="recovery-worksheet-top"></span>
+<h1 id="recovery-worksheet-label-Private+recovery+worksheet+template"><a href="#recovery-worksheet-label-Private+recovery+worksheet+template">Private recovery worksheet template</a></h1>
+
+<p>Complete this template privately outside the public source repository. Record paths and evidence, not passwords, tokens, private key contents or customer data.</p>
+
+<h2 id="recovery-worksheet-label-Installation+inventory"><a href="#recovery-worksheet-label-Installation+inventory">Installation inventory</a></h2>
+
+<table role="table">
+<thead>
+<tr>
+<th>Item</th>
+<th>Private operational value / evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Host identity, public/private addresses and administrator</td>
+<td></td>
+</tr>
+<tr>
+<td>OS, architecture and source/package repositories</td>
+<td></td>
+</tr>
+<tr>
+<td>Redmine, Ruby, Rails, Bundler and PostgreSQL versions</td>
+<td></td>
+</tr>
+<tr>
+<td>Database, owner, encoding, locale, schemas, extensions and required roles</td>
+<td></td>
+</tr>
+<tr>
+<td>Application/attachment roots and symlink targets</td>
+<td></td>
+</tr>
+<tr>
+<td>Service user/group IDs, units and environment-file paths</td>
+<td></td>
+</tr>
+<tr>
+<td>Rails key, SMTP state, provider SSH key and database TLS paths</td>
+<td></td>
+</tr>
+<tr>
+<td>Additional coverage and exclusions reviewed</td>
+<td></td>
+</tr>
+<tr>
+<td>Private backup directory and storage capacity/reserve</td>
+<td></td>
+</tr>
+<tr>
+<td>Primary destination/account/folder and required retention</td>
+<td></td>
+</tr>
+<tr>
+<td>Optional secondary: disabled / redundant / failover and retention</td>
+<td></td>
+</tr>
+<tr>
+<td>Versioning/lock policy and effective expiry</td>
+<td></td>
+</tr>
+<tr>
+<td>Notification user/group IDs, audience and email health</td>
+<td></td>
+</tr>
+<tr>
+<td>Schedule/timezone and shutdown/maintenance windows</td>
+<td></td>
+</tr>
+<tr>
+<td>Worker heartbeat, first capture/upload verification and validation run</td>
+<td></td>
+</tr>
+<tr>
+<td>Independent recovery administrator/access</td>
+<td></td>
+</tr>
+<tr>
+<td>Isolated restore result and date</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="recovery-worksheet-label-Incident+and+recovery+record"><a href="#recovery-worksheet-label-Incident+and+recovery+record">Incident and recovery record</a></h2>
+
+<table role="table">
+<thead>
+<tr>
+<th>Item</th>
+<th>Evidence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Incident time, recovery owner and failed-host fencing</td>
+<td></td>
+</tr>
+<tr>
+<td>Selected run ID, capture time and expected data-loss interval</td>
+<td></td>
+</tr>
+<tr>
+<td>Complete marker, artifact sizes and checksum verification</td>
+<td></td>
+</tr>
+<tr>
+<td>Replacement host and reproduced software versions</td>
+<td></td>
+</tr>
+<tr>
+<td>Private bootstrap, original key pairing and Recovery Mode</td>
+<td></td>
+</tr>
+<tr>
+<td>Database restore result, attachment verification and functional checks</td>
+<td></td>
+</tr>
+<tr>
+<td>Separately provisioned gateway/HTTPS and cutover readiness</td>
+<td></td>
+</tr>
+<tr>
+<td>Notification/retention review, deliberate activation and next backup</td>
+<td></td>
+</tr>
+<tr>
+<td>Measured recovery time and unresolved limitations</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+
+<p>Retain an accessible private copy outside the source server. The live backup guide is <a href="RECOVERY_md.html">RECOVERY.md</a>.</p>
+</section>
+<section id="storage" aria-label="Storage catalog"><span id="storage-top"></span>
+<h1 id="storage-label-Ruby+storage+catalog"><a href="#storage-label-Ruby+storage+catalog">Ruby storage catalog</a></h1>
+
+<table role="table">
+<thead>
+<tr>
+<th>Provider / protocol</th>
+<th>Ruby route</th>
+<th>Adapter status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Google Drive</td>
+<td>Google HTTPS API; a Google-maintained Ruby client also exists</td>
+<td>Initial adapter using direct HTTPS</td>
+</tr>
+<tr>
+<td>OneDrive</td>
+<td>Microsoft Graph HTTPS API</td>
+<td>Initial adapter for signed-in <code>/me/drive</code></td>
+</tr>
+<tr>
+<td>AWS S3</td>
+<td>Official aws-sdk-s3</td>
+<td>Initial adapter</td>
+</tr>
+<tr>
+<td>Cloudflare R2 / Backblaze B2</td>
+<td>S3-compatible API with aws-sdk-s3</td>
+<td>Initial adapter; provider capability tests required</td>
+</tr>
+<tr>
+<td>SFTP</td>
+<td>net-sftp / net-ssh</td>
+<td>Initial adapter</td>
+</tr>
+<tr>
+<td>Google Cloud Storage</td>
+<td>Official google-cloud-storage</td>
+<td>Future adapter</td>
+</tr>
+<tr>
+<td>Azure Blob</td>
+<td>HTTPS REST; old Azure Storage Ruby SDK retired</td>
+<td>Future REST adapter</td>
+</tr>
+<tr>
+<td>Dropbox</td>
+<td>HTTPS REST or reviewed community Ruby SDK</td>
+<td>Future adapter</td>
+</tr>
+<tr>
+<td>Box</td>
+<td>HTTPS REST</td>
+<td>Future adapter</td>
+</tr>
+<tr>
+<td>Nextcloud / ownCloud</td>
+<td>WebDAV over HTTPS</td>
+<td>Future adapter</td>
+</tr>
+<tr>
+<td>FTPS</td>
+<td>Ruby net-ftp with TLS</td>
+<td>Future adapter</td>
+</tr>
+<tr>
+<td>Mounted SMB3 / NFSv4</td>
+<td>Ruby filesystem operations after OS mounting</td>
+<td>Future destination adapter</td>
+</tr>
+<tr>
+<td>SharePoint libraries</td>
+<td>Microsoft Graph with explicit drive/library routing</td>
+<td>Future extension; not arbitrary <code>/me/drive</code> folder IDs</td>
+</tr>
+</tbody>
+</table>
+
+<p>The core already uses local filesystem storage for capture. That is not evidence of an independent mounted-share/offsite-copy adapter. Secondary storage remains optional and disabled by default.</p>
+
+<p>No listed service is fundamentally inaccessible from Ruby just because there is no official Ruby SDK. A complete adapter still needs authentication, upload/resume, integrity, namespace listing and safe retention tests.</p>
+
+<p>Excluded paths: retired SDK dependencies; rsync/rclone/CLI-only transfer integrations; plugin-controlled SMB/NFS mounting; plain FTP/HTTP; services exposing no usable transfer API; and upload-only URLs without the operations required for a managed backup destination.</p>
+
+<p>See <a href="CONFIGURATION_md.html">configuration</a> for supported operations and <a href="REFERENCE_md.html">references</a> for primary sources. Existing S3 lock/versioning APIs are supported only where the endpoint actually implements them; no universal immutable protection is claimed.</p>
+</section>
+<section id="security" aria-label="Security"><span id="security-top"></span>
+<h1 id="security-label-Security+and+operational+limits"><a href="#security-label-Security+and+operational+limits">Security and operational limits</a></h1>
+<ul><li>
+<p>Backup administration requires a Redmine administrator. Rails authenticates users and protects POST actions against CSRF. Provider OAuth uses one-use state, expiry, destination binding and S256 PKCE. No SMTP application permissions are reused for storage.</p>
+</li><li>
+<p>Secrets are write-only in the UI and encrypted in mode-0600 control files within mode-0700 local storage. No raw subprocess/provider errors or credentials are logged. Do not serve that directory through nginx/Apache/static aliases. Filesystem paths are administrator-only information.</p>
+</li><li>
+<p>Archive encryption is disabled by policy. Dumps, environment files and the private bootstrap can contain credentials/customer data. HTTPS/SSH transport verification remains required. Limit storage access appropriately.</p>
+</li><li>
+<p>The plugin performs no privilege escalation. External secrets or service environment files must be readable by the Redmine account; unreadable required coverage fails capture. Existing Redmine-specific file/directory environment variables and readable Redmine systemd units are discovered, and additional paths are configurable.</p>
+</li><li>
+<p>PostgreSQL capture inspection uses an explicit repeatable-read, read-only transaction. A database snapshot covers the dump and referenced attachment inventory, not an atomic whole-filesystem snapshot. Referenced attachments are hash/size checked while copied; changes to other copied files fail when detected. Long snapshots may delay vacuum cleanup and should be monitored operationally.</p>
+</li><li>
+<p>Only one writer process is allowed per shared local control directory. Do not use an unreliable network filesystem for control locks or deploy multiple independent stores against one namespace. The worker has a kernel lock and heartbeat; it does not permit unsafe automatic takeover of a still-running hung process.</p>
+</li><li>
+<p><code>df</code> checks reserve before capture and during streaming. Unpredictable compression ratios, concurrent writers and platform behavior still require a restore/space drill. Use the service template’s CPU/I/O priority and configure sufficient disk capacity.</p>
+</li><li>
+<p>Retention checks installation/run ownership and reference namespaces. It never synchronizes a whole bucket or folder. Completion markers are removed before deleting eligible payloads so partial deletion cannot remain advertised as complete. Interrupted deletes may leave orphaned objects; these are not blindly swept. Duplicate completion markers are preserved rather than risking shared-payload deletion.</p>
+</li><li>
+<p>S3 Object Lock can be irreversible until expiry. The plugin checks existing capability and requests opt-in protection; it does not enable bucket policies, grant permissions or bypass holds. Versioning does not imply immutable protection. Old versions/provider recycle bins can outlive the configured successful-date count.</p>
+</li><li>
+<p>Provider credentials/grants can be revoked and rates/quotas vary. No provider integration is claimed as production-certified by unit mocks. OneDrive <code>/me/drive</code> is implemented; arbitrary SharePoint libraries are not. Shared Drive policies require separate testing.</p>
+</li><li>
+<p>Alerts use existing Redmine delivery. Neither a dead server nor a stopped worker can send immediate native alerts; startup catch-up resumes after availability. Supervisors/organizational monitoring remain external operational responsibilities.</p>
+</li><li>
+<p>Recovery Mode is triggered by a different host identity, an explicit control/RECOVERY marker or <code>REDMINE_BACKUP_RECOVERY=1</code>. Identical VM clones may share identity, so restoration instructions require an explicit recovery flag. The plugin does not automatically restore a database or expose public backup download endpoints.</p>
+</li></ul>
+</section>
+<section id="implementation" aria-label="Implementation"><span id="implementation-top"></span>
+<h1 id="implementation-label-Implementation+coverage"><a href="#implementation-label-Implementation+coverage">Implementation coverage</a></h1>
+
+<p>Initial native plugin version: 0.1.0. This describes source implementation, not proof of production operation.</p>
+
+<table role="table">
+<thead>
+<tr>
+<th>Requirement</th>
+<th>Implementation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Admin UI</td>
+<td>Administrator-only dashboard, settings, queued actions, history, health and audit</td>
+</tr>
+<tr>
+<td>Database configuration</td>
+<td>Reads Redmine’s resolved ActiveRecord primary configuration; no duplicate editable credentials</td>
+</tr>
+<tr>
+<td>Full daily database/files</td>
+<td>Exported PostgreSQL read-only snapshot, custom dump, full application archive and snapshot-referenced attachments</td>
+</tr>
+<tr>
+<td>Discovery/coverage</td>
+<td>Application and attachment roots, configured Redmine file/directory environment references, readable Redmine systemd units/environment files and additional paths; changes highlighted</td>
+</tr>
+<tr>
+<td>Local storage</td>
+<td>Private subdirectory of attachment storage by default; editable at first setup, controlled migration for existing history</td>
+</tr>
+<tr>
+<td>Retention</td>
+<td>Configurable local/default remote/per-target override; 1–3650 distinct successful dates; defaults 3/10</td>
+</tr>
+<tr>
+<td>Safe cleanup</td>
+<td>Protected pending copies, ownership/reference checks, per-target history, last good copy, lock deferral</td>
+</tr>
+<tr>
+<td>Scheduling and catch-up</td>
+<td>Supervised native Ruby worker, persistent queue, latest missed slot, explicit pause</td>
+</tr>
+<tr>
+<td>One-run lock</td>
+<td>Kernel process lock, heartbeat and interrupted-job reconciliation</td>
+</tr>
+<tr>
+<td>Packaging</td>
+<td>Separate components or ZIP64; retry packaging without another dump</td>
+</tr>
+<tr>
+<td>Upload retry</td>
+<td>Existing artifact hash validation, provider checkpoints, resume where supported</td>
+</tr>
+<tr>
+<td>Providers</td>
+<td>Google Drive, OneDrive <code>/me/drive</code>, SFTP, S3-compatible initial adapters</td>
+</tr>
+<tr>
+<td>Secondary</td>
+<td>Optional/disabled by default; explicit Redundant or Failover</td>
+</tr>
+<tr>
+<td>Versioning/locks</td>
+<td>Existing S3 capability checks, opt-in object protection and locked-cleanup deferral</td>
+</tr>
+<tr>
+<td>Status</td>
+<td>Local capture/packaging, each target, protection and cleanup tracked separately</td>
+</tr>
+<tr>
+<td>Mail</td>
+<td>Existing Redmine Mailer, active user/group audience, test notification, per-recipient retry/deduplication</td>
+</tr>
+<tr>
+<td>Bootstrap/recovery</td>
+<td>Private bootstrap includes key/configuration and control history; standalone verifier/import helper; forced Recovery Mode</td>
+</tr>
+<tr>
+<td>Gateway</td>
+<td>Gateway applications/settings/services and Let’s Encrypt paths excluded</td>
+</tr>
+<tr>
+<td>Bandwidth/encryption</td>
+<td>No plugin bandwidth throttle; no added archive encryption</td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="implementation-label-Deliberate+initial+boundaries"><a href="#implementation-label-Deliberate+initial+boundaries">Deliberate initial boundaries</a></h2>
+<ul><li>
+<p>PostgreSQL and Linux are the supported capture environment. Unit tests can run on Windows; a Windows production worker is not supported.</p>
+</li><li>
+<p>Additional Ruby-capable providers are cataloged, not implemented adapters. Shared Drive authorization requires separate tenant tests; arbitrary SharePoint library routing is not implemented.</p>
+</li><li>
+<p>No public download or automatic production-restore endpoint. Restoration remains an administrator-controlled offline process. The helper reconstructs control state and emits reviewed non-secret settings for an explicit Rails maintenance import.</p>
+</li><li>
+<p>Previously captured full backup directories are excluded from each new full backup. Bootstrap preserves their history as historical/unavailable when restored; it does not pretend their old local payloads exist.</p>
+</li><li>
+<p>Native alerts cannot report immediately while Redmine/worker/server is down. Recovery confirmations and scheduled daily-success emails are optional/off by default. Manually pinned recovery points remain a future enhancement.</p>
+</li><li>
+<p>Locked cleanup, duplicate markers, orphaned partial uploads and provider old versions may exceed retention counts. No blind remote orphan sweeping or forced hold removal occurs.</p>
+</li><li>
+<p>A started <code>pg_dump</code> is terminated on timeout/disk-check failure. Cloud requests have bounded per-request timeouts/retries. No global hard upload-duration limit is imposed across a large multipart upload; supervisor cancellation leaves resumable state.</p>
+</li><li>
+<p>Filesystem control locks require a reliable shared local filesystem. No multi-host distributed locking or unsafe hung-worker takeover is claimed.</p>
+</li><li>
+<p>Run/audit records contain safe status/identity metadata, not raw provider error bodies. Captured private bootstrap/configuration is intentionally sensitive and must remain private.</p>
+</li></ul>
+
+<h2 id="implementation-label-Verification+boundary"><a href="#implementation-label-Verification+boundary">Verification boundary</a></h2>
+
+<p>The test suite covers algorithm behavior, capture with a mocked PostgreSQL snapshot, SDK-stubbed S3 requests, fake Drive/Graph sessions, private state, recovery, documentation and orchestration. The GitHub workflow additionally prepares a disposable Redmine/PostgreSQL installation for route/settings/native-mail, production-style eager loading and actual snapshot/dump/attachment-capture integration. See <a href="VALIDATION_md.html">validation evidence</a> and the current workflow for results.</p>
+
+<p>The plugin and worker have been installed with boot/heartbeat/private-permission checks. Before enabling scheduled protection, run a real backup, interruption/retry tests against the chosen provider/account, a restore drill and the existing Microsoft 365 mail integration. Source publication itself never authorizes an unattended deployment.</p>
+</section>
+<section id="deployment" aria-label="Deployment"><span id="deployment-top"></span>
+<h1 id="deployment-label-Deployment+and+release+operations"><a href="#deployment-label-Deployment+and+release+operations">Deployment and release operations</a></h1>
+
+<p>This plugin runs inside Redmine; its background worker is a separate native Ruby process. Configuration, credentials and backup payloads belong to the installed instance and are never checked into the public source repository.</p>
+
+<h2 id="deployment-label-Installation+sequence"><a href="#deployment-label-Installation+sequence">Installation sequence</a></h2>
+<ol><li>
+<p>Inspect the current Redmine/Ruby/PostgreSQL versions, service account, environment-file paths, attachment root and existing dependency lockfile. The reusable <code>tools/deployment_preflight.rb</code> performs database diagnostics in an explicit read-only transaction.</p>
+</li><li>
+<p>Package only source-controlled runtime, documentation and template files. Exclude <code>.git</code>, <code>target</code>, local runtimes, dependency caches, temporary captures and operator records. Keep a short-lived rollback copy of the existing Gemfile.lock until installation verification succeeds.</p>
+</li><li>
+<p>Install into <code>REDMINE_ROOT/plugins/redmine_backup_plugin</code> as the Redmine service account. Run <code>bundle install</code> using the current Redmine environment. Compare the lockfile and avoid unrelated dependency upgrades. There are no plugin table migrations.</p>
+</li><li>
+<p>Install the reviewed worker unit with the same service account, working directory, Ruby/Bundler and environment inputs as Redmine. Give the discovered local store private permissions. Restart Redmine and start the worker.</p>
+</li><li>
+<p>Verify the plugin registry, routes, public login response, administrator page, worker heartbeat, private control files, queue and setup checks. Existing SMTP functionality and the gateway remain outside the deployment change.</p>
+</li><li>
+<p>Initial storage is unconnected and backup scheduling is disabled. Select a destination, complete its authorization, choose recipients/retention, run the health check and validate a manual backup before enabling daily scheduling. No operational test email or cloud upload is sent just by loading the plugin.</p>
+</li></ol>
+
+<p>The <a href="RECOVERY-WORKSHEET_md.html">recovery worksheet</a> is a private template for the actual host/service paths, checks and evidence. Live instance addresses, credentials, provider grants, service environment values and deployment archives are not part of the public documentation.</p>
+
+<h2 id="deployment-label-Rollback"><a href="#deployment-label-Rollback">Rollback</a></h2>
+
+<p>If boot/dependency verification fails, stop the backup worker, remove only the newly installed plugin directory, restore the saved lockfile and restart Redmine with its original dependencies. Preserve any actual captured backup/control data separately. Do not drop Redmine tables or remove existing plugins. Remove the short-lived rollback lockfile and source upload after a verified installation.</p>
+
+<h2 id="deployment-label-Maintainer+tooling"><a href="#deployment-label-Maintainer+tooling">Maintainer tooling</a></h2>
+<ul><li>
+<p><code>tools/build_documentation.rb</code> generates the offline HTML guide from current Markdown using Ruby’s RDoc. It has no production-runtime role.</p>
+</li><li>
+<p><code>tools/check_sources.rb</code> validates source/workflow syntax and local documentation links; <code>test/run.rb</code> runs the independent unit suite.</p>
+</li><li>
+<p><code>tools/deployment_preflight.rb</code> reads the installed Redmine metadata from its own application root/environment.</p>
+</li><li>
+<p><code>tools/deployment_verify.rb</code> verifies the installed plugin, disabled initial policy, private state and worker heartbeat using read-only database access.</p>
+</li><li>
+<p><code>tools/admin_smoke.py</code> verifies the administrator page through normal HTTPS login; it prompts privately and does not trigger a backup or email.</p>
+</li><li>
+<p><code>tools/remote_console.py</code> is an optional maintainer workstation transport using Paramiko and strict existing known_hosts verification. It prompts without echo for SSH credentials, keeps them only in memory and accepts JSON execute/upload requests. Paramiko is a workstation dependency only; the installed Ruby plugin never needs Python or this helper. Close the transport after maintenance.</p>
+</li></ul>
+
+<h2 id="deployment-label-Repository+identity+and+history"><a href="#deployment-label-Repository+identity+and+history">Repository identity and history</a></h2>
+
+<p>Use the intended GitHub account for authentication and its verified/noreply address for commit attribution; these are separate settings. A deliberate replacement of published history must use an explicitly expected remote SHA with force-with-lease, so a collaborator’s intervening push is not overwritten.</p>
+
+<p>Rewriting a branch removes its old commits from that branch’s history. It does not guarantee immediate erasure of GitHub caches, forks, clones or historical workflow references. Secrets must not be committed in the first place; credentials exposed elsewhere require their own remediation.</p>
+
+<p>Public visibility permits reading/cloning/forking and proposing pull requests. Direct pushes still require authorized write access. Repository owners can additionally apply branch/ruleset protection.</p>
+</section>
+<section id="validation" aria-label="Validation"><span id="validation-top"></span>
+<h1 id="validation-label-Validation"><a href="#validation-label-Validation">Validation</a></h1>
+
+<p>Local result on 15 November 2026: 72 independent unit tests, 292 assertions, zero failures/errors/skips on portable Ruby 4.0.9. Ruby syntax, workflow YAML indentation, offline-document generation, JavaScript syntax and documentation-link checks passed. RDoc is an explicit standalone test/documentation dependency and is not injected into Redmine’s production dependency set.</p>
+
+<p>The <a href="https://github.com/KrishnaST/redmine-backup-plugin/actions/workflows/test.yml">current CI workflow</a> runs the unit suite on Ruby 3.3, 3.4 and 4.0 and an isolated Redmine/PostgreSQL integration job. The integration cases cover administrator authorization, settings persistence, native test-mail delivery, an actual exported snapshot/database dump, referenced attachment capture and production-style eager loading. CI results are attached to the current repository history rather than obsolete rewritten commit links.</p>
+
+<p>The CI PostgreSQL client wrappers use the isolated test container’s matching binaries. They are test infrastructure only and are not installed or required by the production plugin. Native mail uses the in-memory test delivery transport; it sends no external email.</p>
+
+<p>Run the independent unit suite with <code>bundle exec ruby -Ilib test/run.rb</code>. Run <code>ruby tools/check_sources.rb</code> for Ruby syntax, workflow YAML indentation and local documentation links.</p>
+
+<p>The initial local suite is executed with a private portable Ruby runtime under ignored <code>tools/runtime/</code>. Runtime downloads, installed test gems, temporary backups and credentials are excluded from Git. Tests create scratch files only under ignored <code>tmp/test</code> within this repository.</p>
+
+<p>Test scope includes configurable retention/validation, protected pending sets, same-date selection, optional secondary modes, failover/redundant orchestration, retry target selection, destination isolation, encrypted state/wrong-key failure, lock exclusion, scheduling/catch-up/DST, mocked read-only capture/snapshot/attachment validation, ZIP repackaging/integrity, offline bootstrap and SDK/HTTP adapter behavior.</p>
+
+<p>S3 tests use the actual AWS Ruby SDK with stubbed responses. Drive/Graph tests use fake HTTP responses. These tests do not demonstrate live provider compatibility, existing SMTP-plugin delivery or a successful production restore. Installed-instance checks separately verify Linux private-directory permissions, plugin registration, application boot, public access guarding and worker heartbeat.</p>
+
+<p>The GitHub workflow runs unit tests on Ruby 3.3, 3.4 and 4.0, then prepares a disposable Redmine 7.0.2/PostgreSQL 18 installation for route/admin/settings/native-mail and real capture integration. It creates only a dedicated <code>_test</code> database. The integration entry point refuses non-test environments/databases. It does not contact any production server or cloud account.</p>
+
+<p>Installed-instance verification on 15 November 2026 used Redmine 7.0.2, Rails 8.1.4, Ruby 4.0.9 and PostgreSQL 18.7. Production eager loading passed after correcting the provider namespace path; this behavior now has an integration regression test. Both Redmine and its enabled backup worker are running. Existing locked gem versions were compared before/after and remained unchanged. The local store is mode 0700, control files are mode 0600 and the worker heartbeat is healthy. The public login returns 200 and anonymous backup administration redirects to login. A normal administrator HTTPS sign-in successfully rendered the backup page with HTTP 200 and the expected retention/secondary controls.</p>
+
+<p>Backup scheduling and the optional secondary remain disabled. Storage authorization and alert recipients are not configured. No production backup, cloud upload, operational notification or full restore drill was performed by deploying the plugin.</p>
+</section>
+<section id="reference" aria-label="References"><span id="reference-top"></span>
+<h1 id="reference-label-Authentic+source+and+API+references"><a href="#reference-label-Authentic+source+and+API+references">Authentic source and API references</a></h1>
+
+<p>The capture query uses the authentic Redmine attachment schema rather than inferring columns from sample data. Read-only inspection of the actual deployment and authentic Redmine 7.0.2 sources informed the plan. Runtime capture validates column presence and filesize type again inside an explicit read-only transaction. A production schema check remains required before enabling this implementation.</p>
+
+<p>Retained authoritative source copies under <code>reference/</code>:</p>
+<ul><li>
+<p><code>001_setup.rb</code>: original attachment columns/primary identifier.</p>
+</li><li>
+<p><code>20121213084931_add_attachments_disk_directory.rb</code>: attachment subdirectory metadata.</p>
+</li><li>
+<p><code>20151020182334_change_attachments_filesize_limit_to_8.rb</code>: 64-bit filesize mapping.</p>
+</li><li>
+<p><code>20170302015225_change_attachments_digest_limit_to_64.rb</code>: digest field width.</p>
+</li><li>
+<p><code>Redmine-attachment.rb</code>: authoritative file storage, digest and attachment lifecycle behavior.</p>
+</li><li>
+<p><code>Redmine-Gemfile</code>, <code>Redmine-plugin.rb</code>, <code>Redmine-mailer.rb</code>, <code>Redmine-group.rb</code>, <code>Redmine-utils.rb</code>: host dependency, registration, notification audience and URL conventions.</p>
+</li></ul>
+
+<p>Source: <a href="https://github.com/redmine/redmine/tree/7.0.2">Redmine 7.0.2 official mirror</a>. Original copyright notices remain; original code is GPL-licensed. No copied migration is executed by this plugin, and no production DDL is performed by the tests or publication.</p>
+
+<p>Operational primary references:</p>
+<ul><li>
+<p><a href="https://www.redmine.org/projects/redmine/wiki/Plugin_Tutorial">Redmine plugin tutorial</a>, <a href="https://api.rubyonrails.org/classes/ActiveRecord/ConnectionHandling.html#method-i-connection_db_config">Rails resolved database configuration</a>.</p>
+</li><li>
+<p><a href="https://www.postgresql.org/docs/18/app-pgdump.html">PostgreSQL 18 pg_dump</a>, <a href="https://www.postgresql.org/docs/18/functions-admin.html#FUNCTIONS-SNAPSHOT-SYNCHRONIZATION">snapshot synchronization</a>, <a href="https://www.postgresql.org/docs/18/app-pgrestore.html">pg_restore</a>.</p>
+</li><li>
+<p><a href="https://developers.google.com/workspace/drive/api/guides/manage-uploads">Google Drive uploads</a>, <a href="https://learn.microsoft.com/en-us/graph/api/driveitem-createuploadsession?view=graph-rest-1.0">Microsoft Graph upload sessions</a>.</p>
+</li><li>
+<p><a href="https://github.com/aws/aws-sdk-ruby">AWS Ruby SDK</a>, <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html">S3 multipart uploads</a>, <a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html">S3 Object Lock</a>.</p>
+</li><li>
+<p><a href="https://developers.cloudflare.com/r2/examples/aws/aws-sdk-ruby/">R2 Ruby example</a>, <a href="https://www.backblaze.com/docs/cloud-storage-use-the-aws-sdk-for-ruby-with-backblaze-b2">B2 Ruby integration</a>.</p>
+</li><li>
+<p><a href="https://github.com/net-ssh/net-sftp">Net::SFTP</a>, <a href="https://github.com/rubyzip/rubyzip">Rubyzip</a>.</p>
+</li><li>
+<p><a href="https://docs.cloud.google.com/ruby/docs/reference/google-cloud-storage/latest">Google Cloud Storage Ruby client</a>, <a href="https://learn.microsoft.com/en-us/graph/sdks/sdks-overview">Graph SDK languages</a>, <a href="https://docs.dropboxapi.com/dropbox-api/docs/sdks/community-sdks">Dropbox community SDKs</a>, <a href="https://developer.box.com/guides/tooling/sdks/">Box maintained SDKs</a>.</p>
+</li></ul>
+
+<p>Provider APIs and package versions change. Lock and test compatible dependencies in the actual Redmine installation; do not automatically upgrade the host application.</p>
+</section>
+</main></body></html>

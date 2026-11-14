@@ -1,0 +1,14 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative '../lib/redmine_backup'
+require_relative '../lib/redmine_backup/store'
+require_relative '../lib/redmine_backup/recovery_bootstrap'
+
+begin
+  RedmineBackup::RecoveryBootstrap.restore(ARGV.fetch(0), ARGV.fetch(1))
+  puts 'Private control state restored in Recovery Mode. Review and import restored-plugin-settings.json through a controlled Rails maintenance session.'
+rescue StandardError
+  warn 'Bootstrap restore failed. Supply a verified private bootstrap and an empty private destination with a writable existing parent.'
+  exit 1
+end

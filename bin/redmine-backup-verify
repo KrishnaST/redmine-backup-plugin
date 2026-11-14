@@ -1,0 +1,24 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'digest'
+require 'json'
+
+begin
+  path = File.realpath(ARGV.fetch(0))
+  root = File.dirname(path)
+  manifest = JSON.parse(File.read(path))
+  raise 'Unsupported manifest' unless manifest['format'] == 1
+  manifest.fetch('artifacts').each do |item|
+    name = item.fetch('name')
+    raise 'Unsafe artifact name' unless name.match?(/\A[a-zA-Z0-9._-]+\z/)
+    artifact = File.realpath(File.join(root, name))
+    raise 'Artifact outside staging' unless artifact.start_with?(root + File::SEPARATOR)
+    raise 'Artifact size mismatch' unless File.size(artifact) == item.fetch('bytes')
+    raise 'Artifact checksum mismatch' unless Digest::SHA256.file(artifact).hexdigest == item.fetch('sha256')
+  end
+  puts 'All manifest artifacts verified. A separate restore drill is still required.'
+rescue StandardError
+  warn 'Backup verification failed. Supply a manifest and all matching components in a private staging directory.'
+  exit 1
+end

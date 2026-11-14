@@ -1,0 +1,10 @@
+Redmine backup operations
+
+Event: <%= @event['code'].tr('_', ' ') %>
+Run: <%= @event['run_id'] %>
+Time: <%= @event['at'] %>
+Last verified local capture: <%= @event['last_local'] || 'None recorded' %>
+Last protected remote backup: <%= @event['last_remote'] || 'None recorded' %>
+
+Review capture and destination results: <%= @details_url %>
+Failed uploads can be retried from a valid local backup.

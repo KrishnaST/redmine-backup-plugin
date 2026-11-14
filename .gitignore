@@ -1,0 +1,16 @@
+/tools/runtime/
+/tmp/
+/coverage/
+/.bundle/
+/vendor/bundle/
+/Gemfile.lock
+*.gem
+*.log
+*.enc
+*.dump
+*.zip
+*.tar.gz
+.env
+target/
+__pycache__/
+*.py[cod]

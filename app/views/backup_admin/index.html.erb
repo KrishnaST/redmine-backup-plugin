@@ -1,0 +1,80 @@
+<% html_title 'Backups' %>
+<% content_for :header_tags do %>
+  <%= stylesheet_link_tag 'backups', plugin: 'redmine_backup_plugin' %>
+  <%= javascript_include_tag 'backups', plugin: 'redmine_backup_plugin', defer: true %>
+<% end %>
+<h2>Redmine backups</h2>
+<p>Full database and file backups. Gateway excluded. Configuration is restricted to administrators.</p>
+<% if @recovery %>
+  <div class="flash warning">Recovery Mode: scheduling, uploads, cleanup and operational mail are stopped.</div>
+  <%= button_to 'Activate this restored instance (leave schedule paused)', redmine_backup_activate_path, method: :post, data: { confirm: 'Confirm the old host is fenced and review the restored destinations before enabling scheduling.' } %>
+<% end %>
+<div class="backup-health">
+  <% @health.each do |check| %><span class="<%= check['ok'] ? 'backup-ok' : 'backup-warning' %>"><%= check['name'] %>: <%= check['ok'] ? 'OK' : 'Needs attention' %></span><% end %>
+</div>
+<%= form_tag redmine_backup_settings_path, method: :post, class: 'tabular backup-settings' do %>
+  <fieldset class="box"><legend>Schedule and local storage</legend>
+    <p><label>Enable schedule</label><%= check_box_tag 'backup[enabled]', '1', @config['enabled'] %></p>
+    <% { 'time' => 'Daily time (HH:MM)', 'timezone' => 'Timezone', 'local_directory' => 'Local directory', 'pg_bin' => 'PostgreSQL bin directory' }.each do |key, label| %>
+      <p><label><%= label %></label><%= text_field_tag "backup[#{key}]", @config[key], size: 65 %></p>
+    <% end %>
+    <p class="backup-hint">Default local directory: <%= @runtime.store.root %>. An existing state directory cannot be moved through this form; see the migration instructions.</p>
+    <% { 'local_keep_dates' => ['Local successful dates to keep', 1, 3650], 'remote_keep_dates' => ['Default remote successful dates to keep', 1, 3650], 'disk_reserve_mb' => ['Minimum free disk reserve (MiB)', 64, 1048576], 'timeout_seconds' => ['Capture timeout (seconds)', 60, 172800] }.each do |key, details| %>
+      <p><label><%= details[0] %></label><%= number_field_tag "backup[#{key}]", @config[key], min: details[1], max: details[2], required: true %></p>
+    <% end %>
+    <p><label>Packaging</label><%= select_tag 'backup[packaging]', options_for_select([['Separate components', 'separate'], ['Single ZIP', 'zip']], @config['packaging']) %></p>
+    <p><label>Additional Redmine paths<br>(one per line)</label><%= text_area_tag 'backup[additional_paths]', @config['additional_paths'].join("\n"), rows: 5, cols: 65 %></p>
+    <p class="backup-hint">Always include external environment files, SMTP state/key directories and service definitions required for recovery. Backups contain private credentials. The archive has no added encryption.</p>
+  </fieldset>
+  <% %w[primary secondary].each do |slot| %>
+    <% target = @config[slot] %>
+    <fieldset class="box"><legend><%= slot.capitalize %> destination<%= slot == 'secondary' ? ' (optional)' : '' %></legend>
+      <% if slot == 'secondary' %>
+        <p><label>Enable secondary</label><%= check_box_tag 'backup[secondary][enabled]', '1', target['enabled'], id: 'backup_secondary_enabled' %></p>
+      <% end %>
+      <div <%= slot == 'secondary' ? 'id=backup-secondary-fields' : '' %>>
+        <% if slot == 'secondary' %><p><label>Secondary mode</label><%= select_tag 'backup[secondary][mode]', options_for_select([['Choose mode', ''], ['Redundant — both copies required', 'redundant'], ['Failover — secondary after primary failure', 'failover']], target['mode']) %></p><% end %>
+        <p><label>Storage provider</label><%= select_tag "backup[#{slot}][provider]", options_for_select([['Google Drive', 'google_drive'], ['OneDrive', 'onedrive'], ['SFTP', 'sftp'], ['S3 compatible', 's3']], target['provider']), class: 'backup-provider', data: { slot: slot } %></p>
+        <p><label>Remote dates to keep<br>(blank inherits default)</label><%= number_field_tag "backup[#{slot}][remote_keep_dates]", target['remote_keep_dates'], min: 1, max: 3650 %></p>
+        <% { 'cloud' => { 'client_id' => 'OAuth client ID', 'tenant_id' => 'Microsoft tenant ID (organizations if blank)', 'folder_id' => 'Destination folder/item ID' }, 's3' => { 'endpoint' => 'HTTPS endpoint (blank for AWS)', 'region' => 'Region', 'bucket' => 'Bucket', 'prefix' => 'Key prefix', 'access_key_id' => 'Access key ID (blank for IAM role)' }, 'sftp' => { 'host' => 'Host', 'port' => 'SSH port (22)', 'username' => 'SSH username', 'directory' => 'Existing remote directory', 'known_hosts' => 'Local known_hosts file', 'private_key_path' => 'Local SSH private key file' } }.each do |kind, fields| %>
+          <div class="backup-provider-fields" data-slot="<%= slot %>" data-provider="<%= kind %>">
+            <% fields.each do |key, label| %><p><label><%= label %></label><%= text_field_tag "backup[#{slot}][#{key}]", target[key], size: 65 %></p><% end %>
+          </div>
+        <% end %>
+        <% { 'client_secret' => 'OAuth client secret', 'secret_access_key' => 'S3 secret access key', 'session_token' => 'S3 session token (optional)', 'password' => 'SFTP password (optional)' }.each do |key, label| %>
+          <p><label><%= label %></label><%= password_field_tag "backup[#{slot}][#{key}]", '', autocomplete: 'new-password', placeholder: target[key].present? ? 'Configured — blank preserves value' : 'Not configured', size: 65 %></p>
+        <% end %>
+        <p><label>Require provider versioning</label><%= check_box_tag "backup[#{slot}][versioning]", '1', target['versioning'] %></p>
+        <p><label>Require retention lock</label><%= check_box_tag "backup[#{slot}][retention_lock]", '1', target['retention_lock'] %> S3 only; bucket Object Lock must already be enabled.</p>
+        <p><label>Lock period (days)</label><%= number_field_tag "backup[#{slot}][lock_days]", target['lock_days'], min: 1, max: 3650 %></p>
+        <p class="backup-hint">Versioning and immutable protection depend on the endpoint. Locks may retain more dates than the cleanup setting.</p>
+      </div>
+    </fieldset>
+  <% end %>
+  <fieldset class="box"><legend>Notifications through existing Redmine email</legend>
+    <p><label>Recovery confirmation</label><%= check_box_tag 'backup[recovery_notifications]', '1', @config['recovery_notifications'] %></p>
+    <p><label>Scheduled daily success summary</label><%= check_box_tag 'backup[daily_success_summary]', '1', @config['daily_success_summary'] %></p>
+    <p><label>Users</label><%= select_tag 'backup[user_ids][]', options_from_collection_for_select(@users, :id, :name, @config['user_ids']), multiple: true, size: 6 %></p>
+    <p><label>Groups</label><%= select_tag 'backup[group_ids][]', options_from_collection_for_select(@groups, :id, :lastname, @config['group_ids']), multiple: true, size: 5 %></p>
+  </fieldset>
+  <%= submit_tag 'Save settings' %>
+<% end %>
+<div class="backup-actions">
+  <% @config.destinations.each do |slot, target| %>
+    <% if %w[google_drive onedrive].include?(target['provider']) %><%= button_to "Connect #{slot} storage", redmine_backup_connect_path(slot: slot), method: :post %><% end %>
+  <% end %>
+  <%= button_to 'Back up now', redmine_backup_actions_path(kind: 'backup'), method: :post %>
+  <%= button_to 'Test notification', redmine_backup_actions_path(kind: 'test_notification'), method: :post %>
+  <%= button_to 'Check setup', redmine_backup_actions_path(kind: 'health_check'), method: :post %>
+</div>
+<h3>Backup history</h3>
+<table class="list backup-history"><thead><tr><th>Run</th><th>Date</th><th>Capture / overall result</th><th>Primary</th><th>Secondary</th><th>Actions</th></tr></thead><tbody>
+  <% @runs.each do |run| %><tr>
+    <td><%= run['id'] %><% if run['coverage_changed'] %><br><strong>Coverage changed</strong><% end %></td><td><%= run['date'] %></td>
+    <td><%= run['captured'] ? 'Captured' : 'Not captured' %><br><%= run['status'].tr('_', ' ') %><%= run['local_deleted'] ? ' · local removed' : '' %><br><%= run['error'] %></td>
+    <% %w[primary secondary].each do |slot| %><% state = run.fetch('destinations', {})[slot] %><td><%= state ? (state['verified'] ? 'Verified' : 'Pending / failed') : (slot == 'secondary' && !run['secondary_mode'] ? 'Disabled' : 'Not attempted') %><br><%= state && state['error'] %><br>Protection: <%= state && state['protection'] %><br>Cleanup: <%= state && state['cleanup'] %></td><% end %>
+    <td><% if run['captured'] && !run['local_deleted'] %><%= button_to 'Retry upload', redmine_backup_actions_path(kind: 'retry_upload', run_id: run['id']), method: :post %><%= button_to 'Retry packaging', redmine_backup_actions_path(kind: 'retry_packaging', run_id: run['id']), method: :post %><% end %></td>
+  </tr><% end %>
+</tbody></table>
+<details><summary>Recent audit history</summary><table class="list"><tbody><% @audit.each do |event| %><tr><td><%= event['at'] %></td><td><%= event['event'] %></td><td><%= event['actor'] %></td><td><%= event['run'] %></td></tr><% end %></tbody></table></details>
+<details><summary>Notification delivery</summary><table class="list"><tbody><% @notifications.each do |event| %><tr><td><%= event['at'] %></td><td><%= event['code'] %></td><td><%= event['sent_at'] || event['delivery_status'] || 'Pending' %></td></tr><% end %></tbody></table></details>

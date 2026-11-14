@@ -1,0 +1,106 @@
+name: Test
+on:
+    push:
+    pull_request:
+permissions:
+    contents: read
+jobs:
+    unit:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                ruby: ['3.3', '3.4', '4.0']
+        steps:
+            -
+                uses: actions/checkout@v7
+            -
+                uses: ruby/setup-ruby@v1
+                with:
+                    ruby-version: ${{ matrix.ruby }}
+                    bundler-cache: true
+            -
+                run: bundle exec ruby -Ilib test/run.rb
+            -
+                run: ruby tools/check_sources.rb
+            -
+                run: node --check assets/javascripts/backups.js
+    redmine:
+        runs-on: ubuntu-latest
+        services:
+            postgres:
+                image: postgres:18
+                env:
+                    POSTGRES_USER: redmine_test
+                    POSTGRES_PASSWORD: local_test_password
+                    POSTGRES_DB: redmine_backup_test
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U redmine_test -d redmine_backup_test"
+                    --health-interval 10s --health-timeout 5s --health-retries 10
+        steps:
+            -
+                uses: actions/checkout@v7
+                with:
+                    path: plugin
+            -
+                uses: actions/checkout@v7
+                with:
+                    repository: redmine/redmine
+                    ref: 7.0.2
+                    path: redmine
+            -
+                uses: ruby/setup-ruby@v1
+                with:
+                    ruby-version: '4.0'
+            -
+                name: Prepare disposable Redmine installation
+                working-directory: redmine
+                run: |
+                    mv ../plugin plugins/redmine_backup_plugin
+                    cat > config/database.yml <<'YAML'
+                    test:
+                        adapter: postgresql
+                        host: 127.0.0.1
+                        port: 5432
+                        username: redmine_test
+                        password: local_test_password
+                        database: redmine_backup_test
+                        encoding: utf8
+                    YAML
+                    printf "gem 'minitest', '~> 5.25', group: :test\n" > Gemfile.local
+                    bundle config set --local without 'development rmagick'
+                    bundle install
+            -
+                name: Configure isolated PostgreSQL client wrappers
+                working-directory: redmine
+                run: |
+                    mkdir -p tmp/test-pg-bin
+                    cat > tmp/test-pg-bin/pg_dump <<'SH'
+                    #!/bin/bash
+                    exec docker exec --env PGPASSWORD --env PGDATABASE --env PGHOST --env PGPORT --env PGUSER "$POSTGRES_TEST_CONTAINER" pg_dump "$@"
+                    SH
+                    cat > tmp/test-pg-bin/pg_restore <<'SH'
+                    #!/bin/bash
+                    if [ "$1" = '--version' ]; then
+                        exec docker exec "$POSTGRES_TEST_CONTAINER" pg_restore --version
+                    fi
+                    exec docker exec -i "$POSTGRES_TEST_CONTAINER" pg_restore --list < "${@: -1}"
+                    SH
+                    chmod 700 tmp/test-pg-bin/pg_dump tmp/test-pg-bin/pg_restore
+            -
+                name: Migrate isolated test database
+                working-directory: redmine
+                env:
+                    RAILS_ENV: test
+                    SECRET_KEY_BASE: isolated_test_key_not_for_production_1234567890123456789012345678901234567890
+                run: bundle exec rake db:migrate
+            -
+                name: Redmine routes, settings and mail integration
+                working-directory: redmine
+                env:
+                    RAILS_ENV: test
+                    SECRET_KEY_BASE: isolated_test_key_not_for_production_1234567890123456789012345678901234567890
+                    BACKUP_TEST_PG_BIN: ${{ github.workspace }}/redmine/tmp/test-pg-bin
+                    POSTGRES_TEST_CONTAINER: ${{ job.services.postgres.id }}
+                run: bundle exec rails runner -e test plugins/redmine_backup_plugin/test/redmine_integration.rb
