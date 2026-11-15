@@ -133,7 +133,7 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     follow_redirect!
     assert_includes response.body, 'INVALID OR EXPIRED OAUTH STATE'
     refute_includes response.body, 'private-refresh'
-    assert_includes response.body, 'data-providers="onedrive"'
+    assert_select 'div.backup-provider-fields[data-providers~="onedrive"]'
   end
 
   def test_native_mailer_uses_existing_redmine_delivery
