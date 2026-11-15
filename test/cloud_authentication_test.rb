@@ -281,4 +281,13 @@ class CloudAuthenticationTest < BackupTest
     File.write(path, '')
     assert_raises(RedmineBackup::Error) { RedmineBackup::PrivateCredentialFileService.read(path) }
   end
+
+  def test_connection_health_cannot_pass_with_no_destination_folder
+    provider = RedmineBackup::Providers::CloudDrive.new({ 'provider' => 'google_drive', 'auth_method' => 'oauth2' })
+    http = Http.new
+    provider.instance_variable_set(:@http, http)
+    error = assert_raises(RedmineBackup::Error) { provider.health! }
+    assert_equal 'DESTINATION_FOLDER_REQUIRED', error.message
+    assert_empty http.requests
+  end
 end

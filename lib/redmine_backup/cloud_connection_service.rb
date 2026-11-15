@@ -34,6 +34,7 @@ module RedmineBackup
 
     def save(slot, connected)
       @runtime.save!(@runtime.config.values.merge(slot => connected), actor: @actor)
+      @runtime.enqueue!('health_check', actor: @actor)
       connected
     end
   end

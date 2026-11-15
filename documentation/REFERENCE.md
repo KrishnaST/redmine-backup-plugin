@@ -24,3 +24,5 @@ Operational primary references:
 - [Google Cloud Storage Ruby client](https://docs.cloud.google.com/ruby/docs/reference/google-cloud-storage/latest), [Graph SDK languages](https://learn.microsoft.com/en-us/graph/sdks/sdks-overview), [Dropbox community SDKs](https://docs.dropboxapi.com/dropbox-api/docs/sdks/community-sdks), [Box maintained SDKs](https://developer.box.com/guides/tooling/sdks/).
 
 Provider APIs and package versions change. Lock and test compatible dependencies in the actual Redmine installation; do not automatically upgrade the host application.
+
+Redmine's [Setting model and cross-process cache refresh](https://github.com/redmine/redmine/blob/7.0.2/app/models/setting.rb) is the authoritative source for `Setting.check_cache`. Web requests call it through the host controller; the backup runtime calls it explicitly for the supervised Rake worker as well. This fixes mixed stale destination IDs and fresh private tokens after an administrator changes settings.

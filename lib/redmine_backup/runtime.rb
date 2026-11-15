@@ -15,6 +15,8 @@ module RedmineBackup
 
     def initialize
       RedmineBackup.load_runtime!
+      # Rake workers do not run ApplicationController's per-request cache refresh.
+      Setting.check_cache
       # Redmine caches this hash: never merge private credentials into that shared object.
       raw = JSON.parse(JSON.generate(Setting.plugin_redmine_backup_plugin.to_h))
       defaults = File.join(Attachment.storage_path, 'redmine-backups')
@@ -75,6 +77,7 @@ module RedmineBackup
         Setting.plugin_redmine_backup_plugin = public_values
         store.write('bootstrap', 'settings' => public_values, 'secrets' => secrets,
                                  'installation_id' => store.read('metadata')['installation_id'])
+        store.write('setup_health', [])
         store.audit('settings_changed', actor: actor)
       end || raise(Error, 'WORKER_BUSY_RETRY_SETTINGS')
     end

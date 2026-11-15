@@ -1,6 +1,6 @@
 # Redmine Backup
 
-Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.3.0 adds Google Personal/Workspace and Microsoft Personal/Business/SharePoint identity choices, application/service-account authentication, device-code sign-in and document-library routing. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
+Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.3.1 fixes worker settings refresh and stale connection health after authorization. Version 0.3.0 adds Google Personal/Workspace and Microsoft Personal/Business/SharePoint identity choices, application/service-account authentication, device-code sign-in and document-library routing. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
 
 ## Features
 

@@ -59,9 +59,10 @@ module RedmineBackup
 
       def health!
         super
+        raise Error, 'DESTINATION_FOLDER_REQUIRED' if target['folder_id'].to_s.empty?
         url = google? ? 'https://www.googleapis.com/drive/v3/about?fields=user' : graph_base
         @http.json!(@http.request('get', url, headers: authorization))
-        check_folder! unless target['folder_id'].to_s.empty?
+        check_folder!
         true
       end
 

@@ -114,6 +114,25 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     refute_includes Setting.plugin_redmine_backup_plugin.to_json, 'private-secret'
   end
 
+  def test_runtime_refreshes_settings_changed_by_another_process
+    Setting.plugin_redmine_backup_plugin = { 'primary' => { 'provider' => 'google_drive', 'client_id' => 'old-app', 'folder_id' => 'old-folder' } }
+    RedmineBackup::Runtime.new
+    record = Setting.find_by!(name: 'plugin_redmine_backup_plugin')
+    record.value = { 'primary' => { 'provider' => 'google_drive', 'client_id' => 'new-app', 'folder_id' => 'new-folder' } }
+    record.update_columns(value: record.read_attribute(:value), updated_on: Time.now + 1)
+    assert_equal 'old-app', Setting.plugin_redmine_backup_plugin['primary']['client_id']
+    fresh = RedmineBackup::Runtime.new
+    assert_equal 'new-app', fresh.config['primary']['client_id']
+    assert_equal 'new-folder', fresh.config['primary']['folder_id']
+  end
+
+  def test_settings_save_discards_health_results_for_previous_configuration
+    runtime = RedmineBackup::Runtime.new
+    runtime.store.write('setup_health', [{ 'name' => 'Primary destination connection/protection', 'ok' => false }])
+    runtime.save!(runtime.config.values, actor: @admin.id.to_s)
+    assert_empty runtime.store.read('setup_health', [])
+  end
+
   def test_valid_callback_persists_private_grant_and_rejects_replay
     sign_in
     post '/admin/backups/settings', params: { connect_slot: 'primary', backup: { primary: { provider: 'onedrive', client_id: 'client', folder_id: 'folder' } } }
@@ -128,6 +147,7 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     end
     assert_response :redirect
     assert_equal 'private-refresh', RedmineBackup::Runtime.new.config['primary']['refresh_token']
+    assert RedmineBackup::Runtime.new.store.read('queue', []).any? { |job| job['kind'] == 'health_check' }
     refute_includes Setting.plugin_redmine_backup_plugin.to_json, 'private-refresh'
     get '/admin/backups/oauth/callback', params: { state: state, code: 'authorized-code' }
     follow_redirect!

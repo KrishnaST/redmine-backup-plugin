@@ -1,6 +1,6 @@
 # Storage provider authentication
 
-Version 0.3.0 implements the following authentication paths. Application registration, provider-side permissions and real account authorization are still required. Protocol tests do not prove tenant consent, storage quota or a live successful backup. Credentials are write-only inputs stored encrypted in private control storage, separate from Redmine's cached/database settings.
+Version 0.3.1 implements the following authentication paths. Application registration, provider-side permissions and real account authorization are still required. Protocol tests do not prove tenant consent, storage quota or a live successful backup. Credentials are write-only inputs stored encrypted in private control storage, separate from Redmine's cached/database settings.
 
 ## Google Drive Personal is normal Google OAuth
 
@@ -81,6 +81,8 @@ Azure App Service supplies `IDENTITY_ENDPOINT` and `IDENTITY_HEADER`; do not man
 - OAuth refresh tokens and PKCE are renewal/security mechanisms, not additional account types. Personal Google Drive is already covered by user OAuth.
 
 ## Troubleshooting
+
+A successful connection queues a new setup health check. Refresh the dashboard after the worker processes it. Saving configuration invalidates previous setup results; a warning from before authorization does not describe the newly saved grant. The supervised worker refreshes Redmine's settings cache on every runtime load, keeping public destination IDs and private credentials in sync. A cloud check cannot pass without a destination folder.
 
 - Callback mismatch: copy the exact Redmine callback, not the GitHub Pages documentation URL.
 - Invalid client: check app audience, client ID, secret expiry, certificate registration or federated trust.

@@ -284,7 +284,7 @@ sudo systemctl status redmine-backup-worker.service</pre>
 <section id="authentication" aria-label="Provider authentication"><span id="authentication-top"></span>
 <h1 id="authentication-label-Storage+provider+authentication"><a href="#authentication-label-Storage+provider+authentication">Storage provider authentication</a></h1>
 
-<p>Version 0.3.0 implements the following authentication paths. Application registration, provider-side permissions and real account authorization are still required. Protocol tests do not prove tenant consent, storage quota or a live successful backup. Credentials are write-only inputs stored encrypted in private control storage, separate from Redmine’s cached/database settings.</p>
+<p>Version 0.3.1 implements the following authentication paths. Application registration, provider-side permissions and real account authorization are still required. Protocol tests do not prove tenant consent, storage quota or a live successful backup. Credentials are write-only inputs stored encrypted in private control storage, separate from Redmine’s cached/database settings.</p>
 
 <h2 id="authentication-label-Google+Drive+Personal+is+normal+Google+OAuth"><a href="#authentication-label-Google+Drive+Personal+is+normal+Google+OAuth">Google Drive Personal is normal Google OAuth</a></h2>
 
@@ -459,6 +459,8 @@ sudo systemctl status redmine-backup-worker.service</pre>
 </li></ul>
 
 <h2 id="authentication-label-Troubleshooting"><a href="#authentication-label-Troubleshooting">Troubleshooting</a></h2>
+
+<p>A successful connection queues a new setup health check. Refresh the dashboard after the worker processes it. Saving configuration invalidates previous setup results; a warning from before authorization does not describe the newly saved grant. The supervised worker refreshes Redmine’s settings cache on every runtime load, keeping public destination IDs and private credentials in sync. A cloud check cannot pass without a destination folder.</p>
 <ul><li>
 <p>Callback mismatch: copy the exact Redmine callback, not the GitHub Pages documentation URL.</p>
 </li><li>
@@ -862,7 +864,7 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 <section id="implementation" aria-label="Implementation"><span id="implementation-top"></span>
 <h1 id="implementation-label-Implementation+coverage"><a href="#implementation-label-Implementation+coverage">Implementation coverage</a></h1>
 
-<p>Current native plugin version: 0.3.0. This describes source implementation, not proof of live provider authorization or a successful restore.</p>
+<p>Current native plugin version: 0.3.1. This describes source implementation, not proof of live provider authorization or a successful restore.</p>
 
 <table role="table">
 <thead>
@@ -910,7 +912,7 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 </tr>
 <tr>
 <td>Scheduling and catch-up</td>
-<td>Supervised native Ruby worker, persistent queue, latest missed slot, explicit pause</td>
+<td>Supervised native Ruby worker, persistent queue, latest missed slot, explicit pause; Redmine settings cache refreshed before every runtime load</td>
 </tr>
 <tr>
 <td>One-run lock</td>
@@ -1038,9 +1040,9 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 <section id="validation" aria-label="Validation"><span id="validation-top"></span>
 <h1 id="validation-label-Validation"><a href="#validation-label-Validation">Validation</a></h1>
 
-<p>Local result on 15 November 2026: 138 independent unit tests, 531 assertions, zero failures/errors/skips on portable Ruby 4.0.9. Ruby syntax, workflow YAML indentation, offline-document generation, JavaScript syntax and documentation-link checks passed. Provider-form regression checks cover disabled irrelevant inputs, authentication changes and optional secondary storage. Adapter tests cover Google service-account/delegation RS256 assertions, Microsoft PS256 certificate assertions, OAuth renewal, client secrets, rotating workload/OBO assertion files, managed-identity endpoint constraints, legacy ROPC, imported-token expiry, explicit SharePoint drive routing and S3/SFTP options without contacting providers. Device tests cover user/settings binding, polling intervals, encrypted pending state, replay rejection and busy-worker retry without duplicate folder creation. RDoc is an explicit standalone test/documentation dependency and is not injected into Redmine’s production dependency set.</p>
+<p>Local result on 15 November 2026: 139 independent unit tests, 537 assertions, zero failures/errors/skips on portable Ruby 4.0.9. Ruby syntax, workflow YAML indentation, offline-document generation, JavaScript syntax and documentation-link checks passed. Provider-form regression checks cover disabled irrelevant inputs, authentication changes and optional secondary storage. Adapter tests cover Google service-account/delegation RS256 assertions, Microsoft PS256 certificate assertions, OAuth renewal, client secrets, rotating workload/OBO assertion files, managed-identity endpoint constraints, legacy ROPC, imported-token expiry, explicit SharePoint drive routing and S3/SFTP options without contacting providers. Device tests cover user/settings binding, polling intervals, encrypted pending state, replay rejection and busy-worker retry without duplicate folder creation. RDoc is an explicit standalone test/documentation dependency and is not injected into Redmine’s production dependency set.</p>
 
-<p>The <a href="https://github.com/KrishnaST/redmine-backup-plugin/actions/workflows/test.yml">current CI workflow</a> runs the unit suite on Ruby 3.3, 3.4 and 4.0 and an isolated Redmine/PostgreSQL integration job. The integration cases include administrator authorization, homepage privacy, new provider form rendering and private device-grant persistence, one-click save/connect, state-checked encrypted OAuth callback persistence/replay protection, settings persistence, native test-mail delivery, an actual exported snapshot/database dump, referenced attachment capture and production-style eager loading. CI results are attached to the current repository history rather than obsolete rewritten commit links.</p>
+<p>The <a href="https://github.com/KrishnaST/redmine-backup-plugin/actions/workflows/test.yml">current CI workflow</a> runs the unit suite on Ruby 3.3, 3.4 and 4.0 and an isolated Redmine/PostgreSQL integration job. The integration cases include cross-process settings-cache refresh, invalidation of stale health results, queued health checks after connection, administrator authorization, homepage privacy, new provider form rendering and private device-grant persistence, one-click save/connect, state-checked encrypted OAuth callback persistence/replay protection, settings persistence, native test-mail delivery, an actual exported snapshot/database dump, referenced attachment capture and production-style eager loading. CI results are attached to the current repository history rather than obsolete rewritten commit links.</p>
 
 <p>The CI PostgreSQL client wrappers use the isolated test container’s matching binaries. They are test infrastructure only and are not installed or required by the production plugin. Native mail uses the in-memory test delivery transport; it sends no external email.</p>
 
@@ -1102,5 +1104,7 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 </li></ul>
 
 <p>Provider APIs and package versions change. Lock and test compatible dependencies in the actual Redmine installation; do not automatically upgrade the host application.</p>
+
+<p>Redmine’s <a href="https://github.com/redmine/redmine/blob/7.0.2/app/models/setting.rb">Setting model and cross-process cache refresh</a> is the authoritative source for <code>Setting.check_cache</code>. Web requests call it through the host controller; the backup runtime calls it explicitly for the supervised Rake worker as well. This fixes mixed stale destination IDs and fresh private tokens after an administrator changes settings.</p>
 </section>
 </main></body></html>

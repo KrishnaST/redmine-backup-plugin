@@ -28,7 +28,7 @@ class BackupOauthController < ApplicationController
     RedmineBackup::CloudConnectionService.new(runtime, actor: User.current.id.to_s).complete_browser(
       data.fetch('slot'), code: params[:code], verifier: data.fetch('verifier'), redirect_uri: backup_callback_url
     )
-    flash[:notice] = 'Storage account connected. Its refresh grant is stored privately; run Check setup before enabling scheduling.'
+    flash[:notice] = 'Storage account connected. A setup check is queued; refresh shortly to see its result.'
     redirect_to redmine_backups_path
   rescue StandardError => error
     flash[:error] = safe_oauth_error(error)
@@ -50,7 +50,7 @@ class BackupOauthController < ApplicationController
     result = service.poll(session[:backup_device])
     return render_device_authorization(result.fetch('display')) unless result['connected']
     session.delete(:backup_device)
-    flash[:notice] = 'Microsoft storage account connected. Its refresh grant is stored privately.'
+    flash[:notice] = 'Microsoft storage account connected. A setup check is queued; refresh shortly to see its result.'
     redirect_to redmine_backups_path
   rescue StandardError => error
     flash[:error] = safe_oauth_error(error)

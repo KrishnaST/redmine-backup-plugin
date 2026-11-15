@@ -61,10 +61,11 @@ class AdapterTest < BackupTest
   end
 
   def test_oauth_refresh_uses_default_organizations_tenant_and_checkpoints_rotation
-    target = { 'provider' => 'onedrive', 'tenant_id' => '', 'client_id' => 'client', 'refresh_token' => 'old' }
+    target = { 'provider' => 'onedrive', 'tenant_id' => '', 'client_id' => 'client', 'refresh_token' => 'old', 'folder_id' => 'folder' }
     checkpoints = []
     provider = RedmineBackup::Providers::CloudDrive.new(target, checkpoint: ->(key, state) { checkpoints << [key, state] })
-    http = FakeHttp.new([response(200, 'access_token' => 'new', 'refresh_token' => 'rotated', 'expires_in' => 3600), response(200, 'id' => 'drive')])
+    http = FakeHttp.new([response(200, 'access_token' => 'new', 'refresh_token' => 'rotated', 'expires_in' => 3600),
+                         response(200, 'id' => 'drive'), response(200, 'id' => 'folder', 'folder' => {})])
     provider.instance_variable_set(:@http, http)
     provider.health!
     assert_includes http.requests.first[1], '/organizations/'

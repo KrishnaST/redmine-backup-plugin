@@ -1,6 +1,6 @@
 # Implementation coverage
 
-Current native plugin version: 0.3.0. This describes source implementation, not proof of live provider authorization or a successful restore.
+Current native plugin version: 0.3.1. This describes source implementation, not proof of live provider authorization or a successful restore.
 
 | Requirement | Implementation |
 | --- | --- |
@@ -13,7 +13,7 @@ Current native plugin version: 0.3.0. This describes source implementation, not 
 | Local storage | Private subdirectory of attachment storage by default; editable at first setup, controlled migration for existing history |
 | Retention | Configurable local/default remote/per-target override; 1–3650 distinct successful dates; defaults 3/10 |
 | Safe cleanup | Protected pending copies, ownership/reference checks, per-target history, last good copy, lock deferral |
-| Scheduling and catch-up | Supervised native Ruby worker, persistent queue, latest missed slot, explicit pause |
+| Scheduling and catch-up | Supervised native Ruby worker, persistent queue, latest missed slot, explicit pause; Redmine settings cache refreshed before every runtime load |
 | One-run lock | Kernel process lock, heartbeat and interrupted-job reconciliation |
 | Packaging | Separate components or ZIP64; retry packaging without another dump |
 | Upload retry | Existing artifact hash validation, provider checkpoints, resume where supported |

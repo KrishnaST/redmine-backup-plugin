@@ -11,7 +11,7 @@ module BackupOauthFlow
     return begin_device_authorization(runtime, slot) if method == 'device_code'
     unless method == 'oauth2'
       RedmineBackup::CloudConnectionService.new(runtime, actor: User.current.id.to_s).connect(slot)
-      flash[:notice] = 'Storage credentials verified and saved privately. Validate a backup before relying on protection.'
+      flash[:notice] = 'Storage credentials verified and saved privately. A setup check is queued; validate a backup before relying on protection.'
       return redirect_to redmine_backups_path
     end
     flow = RedmineBackup::OauthService.new.authorization(target, redirect_uri: backup_callback_url)

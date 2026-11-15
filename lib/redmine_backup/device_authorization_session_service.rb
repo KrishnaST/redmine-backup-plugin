@@ -43,6 +43,7 @@ module RedmineBackup
         @runtime.store.write('device_oauth', flows)
       end
       @runtime.save!(@runtime.config.values.merge(slot => connected), actor: @user_id.to_s)
+      @runtime.enqueue!('health_check', actor: @user_id.to_s)
       @runtime.store.lock('device_oauth') do
         flows = @runtime.store.read('device_oauth')
         flows.delete(identifier)

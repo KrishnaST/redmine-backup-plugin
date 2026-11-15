@@ -4,11 +4,12 @@ require_relative 'test_helper'
 
 class CloudConnectionTest < BackupTest
   class Runtime
-    attr_reader :config, :saved
+    attr_reader :config, :saved, :queued
     attr_accessor :recovery
 
     def initialize(configuration)
       @config = configuration
+      @queued = []
     end
 
     def recovery?
@@ -17,6 +18,10 @@ class CloudConnectionTest < BackupTest
 
     def save!(values, actor:)
       @saved = { 'values' => values, 'actor' => actor }
+    end
+
+    def enqueue!(kind, actor:)
+      @queued << { 'kind' => kind, 'actor' => actor }
     end
   end
 
@@ -43,6 +48,7 @@ class CloudConnectionTest < BackupTest
     assert_equal 'verified-folder', runtime.saved['values']['primary']['folder_id']
     assert_equal '7', runtime.saved['actor']
     assert provider.closed
+    assert_equal [{ 'kind' => 'health_check', 'actor' => '7' }], runtime.queued
   end
 
   def test_inaccessible_destination_does_not_publish_connected_configuration

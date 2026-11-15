@@ -5,10 +5,11 @@ require_relative 'test_helper'
 class DeviceSessionTest < BackupTest
   class Runtime
     attr_accessor :config, :busy, :recovery
-    attr_reader :store, :saved
+    attr_reader :store, :saved, :queued
 
     def initialize(store, configuration)
       @store, @config = store, configuration
+      @queued = []
     end
 
     def recovery?
@@ -19,6 +20,10 @@ class DeviceSessionTest < BackupTest
       raise RedmineBackup::Error, 'WORKER_BUSY_RETRY_SETTINGS' if @busy
       @saved = { 'values' => values, 'actor' => actor }
       @config = RedmineBackup::Configuration.new(values).validate!
+    end
+
+    def enqueue!(kind, actor:)
+      @queued << { 'kind' => kind, 'actor' => actor }
     end
   end
 
@@ -91,6 +96,7 @@ class DeviceSessionTest < BackupTest
     assert_equal 1, @locations.calls
     assert_equal 'private-refresh', @runtime.saved['values']['primary']['refresh_token']
     assert_equal '1', @runtime.saved['actor']
+    assert_equal [{ 'kind' => 'health_check', 'actor' => '1' }], @runtime.queued
     assert_raises(RedmineBackup::Error) { @service.poll(identifier) }
   end
 
