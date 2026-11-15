@@ -8,6 +8,7 @@ module RedmineBackup
       'packaging' => 'separate', 'disk_reserve_mb' => 1024, 'timeout_seconds' => 21_600,
       'pg_bin' => '', 'additional_paths' => [], 'user_ids' => [], 'group_ids' => [],
       'recovery_notifications' => false, 'daily_success_summary' => false,
+      'show_homepage_status' => true,
       'recovery_mode' => false, 'primary' => { 'provider' => 'google_drive' },
       'secondary' => { 'enabled' => false, 'mode' => '', 'provider' => '' }
     }.freeze
@@ -36,6 +37,8 @@ module RedmineBackup
       raise Error, 'INVALID_TIMEZONE' if defined?(ActiveSupport::TimeZone) && !ActiveSupport::TimeZone[self['timezone']]
       destinations.each do |slot, target|
         raise Error, 'INVALID_PROVIDER' unless PROVIDERS.include?(target['provider'])
+        authentication = ProviderSettingsService.authentication(target)
+        raise Error, 'AUTHENTICATION_METHOD_NOT_SUPPORTED' unless ProviderSettingsService::METHODS.fetch(target['provider']).include?(authentication)
         if slot == 'secondary' && !%w[redundant failover].include?(target['mode'])
           raise Error, 'SECONDARY_MODE_REQUIRED'
         end

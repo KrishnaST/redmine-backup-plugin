@@ -4,8 +4,8 @@ require 'socket'
 
 module RedmineBackup
   class Runtime
-    SECRET_FIELDS = %w[password private_key client_secret secret_access_key session_token access_token refresh_token expires_at].freeze
-    TARGET_FIELDS = %w[provider enabled mode remote_keep_dates versioning retention_lock lock_days region endpoint bucket prefix access_key_id host port username private_key_path known_hosts directory client_id tenant_id folder_id].freeze
+    SECRET_FIELDS = %w[password private_key key_passphrase client_secret secret_access_key session_token access_token refresh_token expires_at].freeze
+    TARGET_FIELDS = %w[provider auth_method enabled mode remote_keep_dates versioning retention_lock lock_days region endpoint bucket prefix access_key_id host port username private_key_path known_hosts directory client_id tenant_id folder_id].freeze
     attr_reader :store, :config
 
     def self.host_identity

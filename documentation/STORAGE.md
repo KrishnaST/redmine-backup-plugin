@@ -22,4 +22,4 @@ No listed service is fundamentally inaccessible from Ruby just because there is 
 
 Excluded paths: retired SDK dependencies; rsync/rclone/CLI-only transfer integrations; plugin-controlled SMB/NFS mounting; plain FTP/HTTP; services exposing no usable transfer API; and upload-only URLs without the operations required for a managed backup destination.
 
-See [configuration](CONFIGURATION.md) for supported operations and [references](REFERENCE.md) for primary sources. Existing S3 lock/versioning APIs are supported only where the endpoint actually implements them; no universal immutable protection is claimed.
+See [provider authentication](AUTHENTICATION.md) for the supported mechanisms and fields, [configuration](CONFIGURATION.md) for supported operations and [references](REFERENCE.md) for primary sources. Existing S3 lock/versioning APIs are supported only where the endpoint actually implements them; no universal immutable protection is claimed.

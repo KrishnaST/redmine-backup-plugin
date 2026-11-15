@@ -8,6 +8,7 @@ require 'rdoc/markup/to_html'
 root = File.expand_path('../documentation', __dir__)
 pages = {
   'PLAN.md' => 'Full plan', 'INSTALLATION.md' => 'Installation', 'CONFIGURATION.md' => 'Configuration',
+  'AUTHENTICATION.md' => 'Provider authentication',
   'RECOVERY.md' => 'Recovery', 'RECOVERY-WORKSHEET.md' => 'Recovery worksheet', 'STORAGE.md' => 'Storage catalog',
   'SECURITY.md' => 'Security', 'IMPLEMENTATION.md' => 'Implementation', 'DEPLOYMENT.md' => 'Deployment',
   'VALIDATION.md' => 'Validation', 'REFERENCE.md' => 'References'
@@ -21,6 +22,7 @@ sections = pages.map do |filename, title|
   pages.each_key do |target|
     html = html.gsub("href=\"#{target}\"", "href=\"##{target.delete_suffix('.md').downcase}\"")
   end
+  html = html.gsub(/href="\.\.\/([^"]+)"/, 'href="https://github.com/KrishnaST/redmine-backup-plugin/blob/main/\1"')
   "<section id=\"#{identifier}\" aria-label=\"#{CGI.escapeHTML(title)}\"><span id=\"#{identifier}-top\"></span>#{html}</section>"
 end
 navigation = pages.map { |filename, title| "<a href=\"##{filename.delete_suffix('.md').downcase}\">#{CGI.escapeHTML(title)}</a>" }.join
@@ -37,7 +39,7 @@ document = <<~HTML
   pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflow-wrap:anywhere}a{color:#1c608e}li{margin-bottom:7px}
   @media(max-width:800px){nav{position:relative;width:auto}nav a{display:inline-block;margin-right:18px}main{margin:0;padding:14px}section{padding:18px}}
   @media print{nav{display:none}main{margin:0;padding:0}section{border:0;break-before:page}a{color:inherit}}
-  </style></head><body><nav><strong>Redmine Backup</strong>#{navigation}<hr><a href="README.md">Documentation index</a></nav><main>
+  </style></head><body><nav><strong>Redmine Backup</strong>#{navigation}<hr><a href="https://github.com/KrishnaST/redmine-backup-plugin/tree/main/documentation">Source documentation</a></nav><main>
   #{sections.join("\n")}
   </main></body></html>
 HTML

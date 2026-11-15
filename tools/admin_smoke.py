@@ -41,7 +41,12 @@ def main():
     response = opener.open(arguments.url.rstrip("/") + "/admin/backups", timeout=30)
     page = response.read().decode("utf-8")
     valid = response.status == 200 and "Local successful dates to keep" in page and "Secondary destination" in page
-    print(json.dumps({"authenticated": True, "backup_page_status": response.status, "expected_controls_present": valid}))
+    provider_form = 'backup-authentication' in page and 'Save settings and connect storage account' in page
+    homepage = opener.open(arguments.url.rstrip("/") + "/", timeout=30).read().decode("utf-8")
+    summary = 'redmine-backup-home-status' in homepage and 'Last successful local capture' in homepage
+    valid = valid and provider_form and summary
+    print(json.dumps({"authenticated": True, "backup_page_status": response.status, "expected_controls_present": valid,
+                      "provider_specific_form": provider_form, "administrator_homepage_summary": summary}))
     return 0 if valid else 1
 
 

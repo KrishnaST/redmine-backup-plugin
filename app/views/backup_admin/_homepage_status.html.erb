@@ -1,0 +1,13 @@
+<div class="box" id="redmine-backup-home-status">
+  <h3>Backup status</h3>
+  <% if summary %>
+    <p><strong><%= summary['status'] %></strong></p>
+    <p>Last successful local capture: <%= summary['last_backup_at'] || 'Not run yet' %><br>
+    Last verified remote backup: <%= summary['last_remote_at'] || 'None recorded' %><br>
+    Schedule: <%= summary['schedule'] %><br>Worker: <%= summary['worker'] %></p>
+    <% if summary['recovery'] %><p><strong>Recovery Mode — backup actions are blocked.</strong></p><% end %>
+  <% else %>
+    <p>Backup status is unavailable. Check the backup administration page.</p>
+  <% end %>
+  <%= link_to 'Manage backups', redmine_backups_path %>
+</div>

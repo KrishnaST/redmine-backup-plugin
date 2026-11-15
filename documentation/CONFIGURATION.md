@@ -25,13 +25,13 @@ An upload retry skips already verified targets. Deliberate primary backfill of a
 
 ## Google Drive
 
-Register a browser OAuth client with the callback shown below. Enter client ID, client secret where required, and a destination folder ID. Save, then use Connect Storage. Scope is `drive.file` with offline authorization; it grants access to files created/authorized for this application, not unrestricted Drive access. Existing destination folders/Shared Drive policies must permit the application identity; select/provision an application-accessible folder and validate the actual tenant.
+Register a Web OAuth client with the callback shown below. Enter client ID and Web client secret, then click **Save settings and connect storage account**. Leave folder ID blank to create an application-owned **Redmine Backups** folder after consent. Scope is `drive.file` with offline authorization; it grants access to files created/authorized for this application, not unrestricted Drive access. An existing folder must be explicitly accessible to this application; entering its ID alone does not grant access. See [provider authentication](AUTHENTICATION.md) for setup and supported mechanisms.
 
 The adapter uses resumable upload sessions. Shared Drive authorization and tenant-specific behavior require a live compatibility test; do not assume consumer Drive behavior proves Shared Drive support. Reconnect through the same slot if an expired/revoked grant prevents refresh.
 
 ## OneDrive
 
-Register a Microsoft Entra HTTPS Web application with delegated `Files.ReadWrite` and offline access. Enter client ID, tenant ID (blank means organizations), client secret if required by the application type, and the destination drive item/folder ID. Save and connect through browser sign-in with S256 PKCE. Microsoft consumer accounts may need `consumers` or `common` and a matching registration audience.
+Register a Microsoft Entra HTTPS Web application with delegated `Files.ReadWrite` and offline access. Enter client ID, tenant ID (blank means organizations) and Web client secret. Click **Save settings and connect storage account** for browser sign-in with S256 PKCE. Leave folder ID blank to create **Redmine Backups** after consent. Microsoft consumer accounts may need `consumers` or `common` and a matching registration audience.
 
 The initial adapter addresses the signed-in user's `/me/drive`. SharePoint document-library routing is a future adapter extension, not implemented by accepting an arbitrary SharePoint folder ID. Upload sessions and preauthenticated downloads are stored privately; Graph bearer tokens are not forwarded to signed download hosts.
 
@@ -45,17 +45,19 @@ The callback is derived from Redmine's HTTPS host and relative-root settings. OA
 
 ## SFTP
 
-Configure host, SSH port, username, existing remote directory and a local known_hosts file. Supply a readable private-key path or a password. Host-key verification is mandatory; populate and verify known_hosts independently. The plugin does not trust keys on first use, create remote directory trees or run remote shell commands. Existing partial bytes are compared with the local source before offset resume; final verification uses streamed read-back.
+Configure host, SSH port, username, existing remote directory and a local known_hosts file. Select **SSH private key** (readable private-key path and optional key passphrase) or **SSH password**. Only the selected method's fields are enabled. Host-key verification is mandatory; populate and verify known_hosts independently. The plugin does not trust keys on first use, create remote directory trees or run remote shell commands. Existing partial bytes are compared with the local source before offset resume; final verification uses streamed read-back.
 
 ## S3 compatible
 
-Configure bucket, region and optional key prefix. Leave endpoint blank for AWS; R2/B2 require the provider's HTTPS endpoint. Use an IAM role/default SDK credential chain or access key/secret/session token. Only the installation-owned namespace is managed. Multipart sessions are checkpointed; multipart ETags are not treated as MD5 checksums. Verification reads back the actual bytes.
+Configure bucket, region and optional key prefix. Leave endpoint blank for AWS; R2/B2 require the provider's HTTPS endpoint. Select the IAM role/default SDK credential chain, access keys, or temporary STS credentials. Static key fields are hidden for the default chain; the session-token field appears only for STS. Only the installation-owned namespace is managed. Multipart sessions are checkpointed; multipart ETags are not treated as MD5 checksums. Verification reads back the actual bytes.
 
 **Require versioning** checks that bucket versioning already exists. **Require retention lock** additionally checks pre-enabled Object Lock and requests a COMPLIANCE retain-until period. These are opt-in per destination; the plugin never enables bucket-wide irreversible policies. Verify that the intended lock period and cost are acceptable before use. Protected uploads are checked again through object metadata.
 
 Locked cleanup shows Deferred Locked. It does not invalidate a verified upload. Noncurrent versions and deleted-marker history may remain subject to provider lifecycle policies. S3-compatible endpoints do not automatically support AWS's versioning/Object Lock APIs; capability failures are reported.
 
 ## Retry and history
+
+The **Show backup status on administrator homepage** option is on by default. The homepage panel shows the latest result, last verified local/remote success, worker heartbeat, schedule and recovery mode. It does not expose paths, credentials or backup controls to bank/non-administrator users. Scheduling remains disabled until explicitly enabled.
 
 Back Up Now, Retry Upload, Retry Packaging and Test Notification enqueue durable work. The browser does not perform long-running capture or transfer. History separates local capture, packaging, primary/secondary verification, requested protection and cleanup. Retry Packaging checks the preserved manifest/components before creating a new wrapper. No bandwidth throttle is configured, but provider Retry-After/backoff remains in effect.
 

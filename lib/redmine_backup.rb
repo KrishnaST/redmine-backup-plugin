@@ -8,11 +8,12 @@ require 'securerandom'
 require 'time'
 
 module RedmineBackup
-  VERSION = '0.1.0'
+  VERSION = '0.2.0'
   class Error < StandardError; end
 
   def self.load_runtime!
     require_relative 'redmine_backup/configuration'
+    require_relative 'redmine_backup/provider_settings_service'
     require_relative 'redmine_backup/store'
     require_relative 'redmine_backup/retention'
     require_relative 'redmine_backup/process_runner'
@@ -20,6 +21,8 @@ module RedmineBackup
     require_relative 'redmine_backup/resources'
     require_relative 'redmine_backup/capture'
     require_relative 'redmine_backup/providers'
+    require_relative 'redmine_backup/oauth_service'
+    require_relative 'redmine_backup/homepage_summary_service'
     require_relative 'redmine_backup/notification_service'
     require_relative 'redmine_backup/worker'
   end

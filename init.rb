@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'lib/redmine_backup'
+require_relative 'lib/redmine_backup/homepage_hook'
 
 Redmine::Plugin.register :redmine_backup_plugin do
   directory File.expand_path(__dir__)
@@ -15,4 +16,4 @@ Redmine::Plugin.register :redmine_backup_plugin do
        caption: 'Backups', html: { class: 'icon icon-save' }
 end
 
-Rails.application.config.filter_parameters += %i[client_secret access_token refresh_token password private_key secret_access_key session_token code state]
+Rails.application.config.filter_parameters += %i[client_secret access_token refresh_token password private_key key_passphrase secret_access_key session_token code state]

@@ -71,8 +71,12 @@ module RedmineBackup
           options[:endpoint] = target['endpoint']
           options[:force_path_style] = true
         end
-        if target['access_key_id'].to_s != ''
-          options[:credentials] = Aws::Credentials.new(target['access_key_id'], target['secret_access_key'], target['session_token'])
+        authentication = ProviderSettingsService.authentication(target.merge('provider' => 's3'))
+        unless authentication == 'sdk_chain'
+          raise Error, 'S3_ACCESS_KEY_AND_SECRET_REQUIRED' if target['access_key_id'].to_s.empty? || target['secret_access_key'].to_s.empty?
+          raise Error, 'S3_SESSION_TOKEN_REQUIRED' if authentication == 'session_token' && target['session_token'].to_s.empty?
+          token = authentication == 'session_token' ? target['session_token'] : nil
+          options[:credentials] = Aws::Credentials.new(target['access_key_id'], target['secret_access_key'], token)
         end
         @client = Aws::S3::Client.new(**options)
         @bucket = target.fetch('bucket')
@@ -195,8 +199,17 @@ module RedmineBackup
         require 'net/sftp'
         options = { port: Integer(target['port'].to_s.empty? ? 22 : target['port']), verify_host_key: :always,
                     non_interactive: true, timeout: 15, user_known_hosts_file: [target.fetch('known_hosts')] }
-        options[:password] = target['password'] if target['password'].to_s != ''
-        options[:keys] = [target['private_key_path']] if target['private_key_path'].to_s != ''
+        if ProviderSettingsService.authentication(target) == 'password'
+          raise Error, 'SFTP_PASSWORD_REQUIRED' if target['password'].to_s.empty?
+          options[:password] = target['password']
+          options[:auth_methods] = ['password']
+        else
+          raise Error, 'SFTP_PRIVATE_KEY_PATH_REQUIRED' if target['private_key_path'].to_s.empty?
+          options[:keys] = [target['private_key_path']]
+          options[:passphrase] = target['key_passphrase'] unless target['key_passphrase'].to_s.empty?
+          options[:auth_methods] = ['publickey']
+          options[:use_agent] = false
+        end
         @sftp = Net::SFTP.start(target.fetch('host'), target.fetch('username'), **options)
         @directory = target.fetch('directory').sub(%r{/+$}, '')
         raise Error, 'ABSOLUTE_SFTP_DIRECTORY_REQUIRED' unless @directory.start_with?('/')

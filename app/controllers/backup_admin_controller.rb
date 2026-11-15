@@ -3,6 +3,7 @@
 require_relative '../../lib/redmine_backup/runtime'
 
 class BackupAdminController < ApplicationController
+  include BackupOauthFlow
   before_action :require_admin
   before_action :load_runtime
 
@@ -15,10 +16,12 @@ class BackupAdminController < ApplicationController
     @audit = @runtime.store.read('audit', []).reverse.first(40)
     @notifications = @runtime.store.read('notifications', []).reverse.first(20)
     @recovery = @runtime.recovery?
+    @callback_url = backup_callback_url rescue nil
   end
 
   def update
     @runtime.save!(settings_input, actor: User.current.id.to_s)
+    return begin_storage_authorization(RedmineBackup::Runtime.new, params[:connect_slot]) if params[:connect_slot].present?
     flash[:notice] = 'Backup settings saved. Retention changes apply on the next successful upload.'
     redirect_to redmine_backups_path
   rescue RedmineBackup::Error => error
@@ -59,22 +62,12 @@ class BackupAdminController < ApplicationController
       values[key] = submitted[key].to_s if submitted.key?(key)
     end
     values['enabled'] = submitted['enabled'] == '1'
-    %w[recovery_notifications daily_success_summary].each { |key| values[key] = submitted[key] == '1' }
+    %w[recovery_notifications daily_success_summary show_homepage_status].each { |key| values[key] = submitted[key] == '1' }
     values['additional_paths'] = submitted['additional_paths'].to_s.lines.map(&:strip).reject(&:empty?)
     %w[user_ids group_ids].each { |key| values[key] = Array(submitted[key]).map(&:to_i).select(&:positive?).uniq }
     %w[primary secondary].each do |slot|
       input = submitted.fetch(slot, ActionController::Parameters.new)
-      original = @runtime.config[slot]
-      values[slot] = original.dup
-      (RedmineBackup::Runtime::TARGET_FIELDS + RedmineBackup::Runtime::SECRET_FIELDS).each do |key|
-        next unless input.key?(key)
-        next if RedmineBackup::Runtime::SECRET_FIELDS.include?(key) && input[key].to_s.empty?
-        values[slot][key] = RedmineBackup::Runtime::SECRET_FIELDS.include?(key) ? input[key].to_s : input[key].to_s.strip
-      end
-      %w[enabled versioning retention_lock].each { |key| values[slot][key] = input[key] == '1' }
-      if original['provider'] != values[slot]['provider'] || original['client_id'] != values[slot]['client_id'] || original['tenant_id'] != values[slot]['tenant_id']
-        %w[access_token refresh_token expires_at].each { |key| values[slot].delete(key) }
-      end
+      values[slot] = RedmineBackup::ProviderSettingsService.merge(@runtime.config[slot], input)
     end
     values
   end

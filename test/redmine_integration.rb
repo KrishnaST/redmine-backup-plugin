@@ -6,6 +6,7 @@ raise 'Disposable test database required' unless Rails.env.test? && ActiveRecord
 gem 'minitest', '~> 5.25'
 ENV['MT_NO_PLUGINS'] = '1'
 require 'minitest/autorun'
+require 'minitest/mock'
 require 'action_dispatch/testing/integration'
 require 'tmpdir'
 
@@ -44,7 +45,7 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
   end
 
   def test_admin_menu_and_plugin_registration
-    assert_equal '0.1.0', Redmine::Plugin.find(:redmine_backup_plugin).version
+    assert_equal RedmineBackup::VERSION, Redmine::Plugin.find(:redmine_backup_plugin).version
     assert_equal '/admin/backups', Rails.application.routes.url_helpers.redmine_backups_path
   end
 
@@ -72,6 +73,57 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     assert_response :redirect
     assert_equal 7, Setting.plugin_redmine_backup_plugin['local_keep_dates']
     assert_equal 28, Setting.plugin_redmine_backup_plugin['remote_keep_dates']
+  end
+
+  def test_homepage_summary_is_only_visible_to_administrators
+    host! 'redmine.example.test'
+    get '/'
+    refute_includes response.body, 'redmine-backup-home-status'
+    sign_in
+    get '/'
+    assert_response :success
+    assert_includes response.body, 'redmine-backup-home-status'
+    assert_includes response.body, 'No backup recorded'
+  end
+
+  def test_save_and_connect_starts_google_oauth_without_exposing_secrets
+    sign_in
+    post '/admin/backups/settings', params: { connect_slot: 'primary', backup: { primary: { provider: 'google_drive', client_id: 'client', client_secret: 'private-secret' } } }
+    assert_response :redirect
+    assert_includes response.location, 'https://accounts.google.com/'
+    assert_includes response.location, 'code_challenge_method=S256'
+    refute_includes response.location, 'private-secret'
+    refute Setting.plugin_redmine_backup_plugin['primary'].key?('client_secret')
+  end
+
+  def test_invalid_oauth_state_cannot_save_a_grant
+    sign_in
+    get '/admin/backups/oauth/callback', params: { state: 'untrusted', code: 'untrusted' }
+    assert_response :redirect
+    runtime = RedmineBackup::Runtime.new
+    refute runtime.config['primary'].key?('refresh_token')
+  end
+
+  def test_valid_callback_persists_private_grant_and_rejects_replay
+    sign_in
+    post '/admin/backups/settings', params: { connect_slot: 'primary', backup: { primary: { provider: 'onedrive', client_id: 'client', folder_id: 'folder' } } }
+    state = URI.decode_www_form(URI(response.location).query).to_h.fetch('state')
+    service = Object.new
+    service.define_singleton_method(:exchange) do |target, **options|
+      raise 'PKCE verifier missing' if options[:verifier].to_s.empty?
+      target.merge('access_token' => 'private-access', 'refresh_token' => 'private-refresh', 'expires_at' => Time.now.to_i + 3600)
+    end
+    RedmineBackup::OauthService.stub(:new, service) do
+      get '/admin/backups/oauth/callback', params: { state: state, code: 'authorized-code' }
+    end
+    assert_response :redirect
+    assert_equal 'private-refresh', RedmineBackup::Runtime.new.config['primary']['refresh_token']
+    refute_includes Setting.plugin_redmine_backup_plugin.to_json, 'private-refresh'
+    get '/admin/backups/oauth/callback', params: { state: state, code: 'authorized-code' }
+    follow_redirect!
+    assert_includes response.body, 'INVALID OR EXPIRED OAUTH STATE'
+    refute_includes response.body, 'private-refresh'
+    assert_includes response.body, 'data-providers="onedrive"'
   end
 
   def test_native_mailer_uses_existing_redmine_delivery

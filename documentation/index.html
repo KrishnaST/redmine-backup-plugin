@@ -10,7 +10,7 @@ h1,h2,h3{line-height:1.25;color:#263b51}table{border-collapse:collapse;width:100
 pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflow-wrap:anywhere}a{color:#1c608e}li{margin-bottom:7px}
 @media(max-width:800px){nav{position:relative;width:auto}nav a{display:inline-block;margin-right:18px}main{margin:0;padding:14px}section{padding:18px}}
 @media print{nav{display:none}main{margin:0;padding:0}section{border:0;break-before:page}a{color:inherit}}
-</style></head><body><nav><strong>Redmine Backup</strong><a href="#plan">Full plan</a><a href="#installation">Installation</a><a href="#configuration">Configuration</a><a href="#recovery">Recovery</a><a href="#recovery-worksheet">Recovery worksheet</a><a href="#storage">Storage catalog</a><a href="#security">Security</a><a href="#implementation">Implementation</a><a href="#deployment">Deployment</a><a href="#validation">Validation</a><a href="#reference">References</a><hr><a href="README.md">Documentation index</a></nav><main>
+</style></head><body><nav><strong>Redmine Backup</strong><a href="#plan">Full plan</a><a href="#installation">Installation</a><a href="#configuration">Configuration</a><a href="#authentication">Provider authentication</a><a href="#recovery">Recovery</a><a href="#recovery-worksheet">Recovery worksheet</a><a href="#storage">Storage catalog</a><a href="#security">Security</a><a href="#implementation">Implementation</a><a href="#deployment">Deployment</a><a href="#validation">Validation</a><a href="#reference">References</a><hr><a href="https://github.com/KrishnaST/redmine-backup-plugin/tree/main/documentation">Source documentation</a></nav><main>
 <section id="plan" aria-label="Full plan"><span id="plan-top"></span>
 <h1 id="plan-label-Redmine+backup+plan"><a href="#plan-label-Redmine+backup+plan">Redmine backup plan</a></h1>
 
@@ -144,6 +144,8 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 <h1 id="installation-label-Installation"><a href="#installation-label-Installation">Installation</a></h1>
 
 <p>Use a staging Redmine first. This repository does not deploy itself.</p>
+
+<p>The <a href="https://krishnast.github.io/redmine-backup-plugin/#installation">hosted reference</a> and offline <code>documentation/index.html</code> are generated from the same repository documentation. Keep all procedure changes here.</p>
 <ol><li>
 <p>Check Redmine 7.x, its Ruby/Rails versions, PostgreSQL, free space and the existing lockfile. Preserve the working Redmine installation using your existing operational procedure.</p>
 </li><li>
@@ -155,7 +157,7 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 </li><li>
 <p>Open <strong>Administration → Backups</strong>. Choose the local directory before creating the first backup. It defaults to a private <code>redmine-backups</code> subdirectory of <code>Attachment.storage_path</code>. Its existing parent must be writable, persistent and non-public.</p>
 </li><li>
-<p>Configure provider settings, retention and alert recipients. Add any external Redmine paths the discovery preview cannot identify. Save, then connect OAuth if applicable.</p>
+<p>Configure provider settings, retention and alert recipients. Add any external Redmine paths the discovery preview cannot identify. For Google Drive/OneDrive, register the exact displayed callback and use <strong>Save settings and connect storage account</strong>; follow <a href="AUTHENTICATION_md.html">provider authentication</a>. Installation alone does not authorize a storage account.</p>
 </li><li>
 <p>Configure the native worker as a supervised process. Copy the template only after replacing its absolute paths/service user and adding the same environment files used by the web service. Do not run the worker as root.</p>
 </li><li>
@@ -165,6 +167,16 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 </li></ol>
 
 <h2 id="installation-label-Worker+systemd+example"><a href="#installation-label-Worker+systemd+example">Worker systemd example</a></h2>
+
+<p>Example install commands (replace paths, service names and account for the actual host):</p>
+
+<pre>cd /path/to/redmine/plugins
+git clone https://github.com/KrishnaST/redmine-backup-plugin.git redmine_backup_plugin
+cd /path/to/redmine
+bundle install
+sudo systemctl restart redmine.service</pre>
+
+<p>Copy <code>plugins/redmine_backup_plugin/templates/redmine-backup-worker.service</code> to <code>/etc/systemd/system/redmine-backup-worker.service</code>, edit it as described below, then run the service commands. The worker must share the web service’s Rails key, environment and account; a clone and web restart alone do not start scheduled backups.</p>
 
 <p>Edit <code>templates/redmine-backup-worker.service</code> for the actual service account, Redmine root and absolute Bundler executable. Include the environment/secret inputs required by Redmine and its SMTP delivery plugin. OS service configuration is installation infrastructure; daily operation and backup policy are administered in Redmine.</p>
 
@@ -233,13 +245,13 @@ sudo systemctl status redmine-backup-worker.service</pre>
 
 <h2 id="configuration-label-Google+Drive"><a href="#configuration-label-Google+Drive">Google Drive</a></h2>
 
-<p>Register a browser OAuth client with the callback shown below. Enter client ID, client secret where required, and a destination folder ID. Save, then use Connect Storage. Scope is <code>drive.file</code> with offline authorization; it grants access to files created/authorized for this application, not unrestricted Drive access. Existing destination folders/Shared Drive policies must permit the application identity; select/provision an application-accessible folder and validate the actual tenant.</p>
+<p>Register a Web OAuth client with the callback shown below. Enter client ID and Web client secret, then click <strong>Save settings and connect storage account</strong>. Leave folder ID blank to create an application-owned <strong>Redmine Backups</strong> folder after consent. Scope is <code>drive.file</code> with offline authorization; it grants access to files created/authorized for this application, not unrestricted Drive access. An existing folder must be explicitly accessible to this application; entering its ID alone does not grant access. See <a href="AUTHENTICATION_md.html">provider authentication</a> for setup and supported mechanisms.</p>
 
 <p>The adapter uses resumable upload sessions. Shared Drive authorization and tenant-specific behavior require a live compatibility test; do not assume consumer Drive behavior proves Shared Drive support. Reconnect through the same slot if an expired/revoked grant prevents refresh.</p>
 
 <h2 id="configuration-label-OneDrive"><a href="#configuration-label-OneDrive">OneDrive</a></h2>
 
-<p>Register a Microsoft Entra HTTPS Web application with delegated <code>Files.ReadWrite</code> and offline access. Enter client ID, tenant ID (blank means organizations), client secret if required by the application type, and the destination drive item/folder ID. Save and connect through browser sign-in with S256 PKCE. Microsoft consumer accounts may need <code>consumers</code> or <code>common</code> and a matching registration audience.</p>
+<p>Register a Microsoft Entra HTTPS Web application with delegated <code>Files.ReadWrite</code> and offline access. Enter client ID, tenant ID (blank means organizations) and Web client secret. Click <strong>Save settings and connect storage account</strong> for browser sign-in with S256 PKCE. Leave folder ID blank to create <strong>Redmine Backups</strong> after consent. Microsoft consumer accounts may need <code>consumers</code> or <code>common</code> and a matching registration audience.</p>
 
 <p>The initial adapter addresses the signed-in user’s <code>/me/drive</code>. SharePoint document-library routing is a future adapter extension, not implemented by accepting an arbitrary SharePoint folder ID. Upload sessions and preauthenticated downloads are stored privately; Graph bearer tokens are not forwarded to signed download hosts.</p>
 
@@ -251,11 +263,11 @@ sudo systemctl status redmine-backup-worker.service</pre>
 
 <h2 id="configuration-label-SFTP"><a href="#configuration-label-SFTP">SFTP</a></h2>
 
-<p>Configure host, SSH port, username, existing remote directory and a local known_hosts file. Supply a readable private-key path or a password. Host-key verification is mandatory; populate and verify known_hosts independently. The plugin does not trust keys on first use, create remote directory trees or run remote shell commands. Existing partial bytes are compared with the local source before offset resume; final verification uses streamed read-back.</p>
+<p>Configure host, SSH port, username, existing remote directory and a local known_hosts file. Select <strong>SSH private key</strong> (readable private-key path and optional key passphrase) or <strong>SSH password</strong>. Only the selected method’s fields are enabled. Host-key verification is mandatory; populate and verify known_hosts independently. The plugin does not trust keys on first use, create remote directory trees or run remote shell commands. Existing partial bytes are compared with the local source before offset resume; final verification uses streamed read-back.</p>
 
 <h2 id="configuration-label-S3+compatible"><a href="#configuration-label-S3+compatible">S3 compatible</a></h2>
 
-<p>Configure bucket, region and optional key prefix. Leave endpoint blank for AWS; R2/B2 require the provider’s HTTPS endpoint. Use an IAM role/default SDK credential chain or access key/secret/session token. Only the installation-owned namespace is managed. Multipart sessions are checkpointed; multipart ETags are not treated as MD5 checksums. Verification reads back the actual bytes.</p>
+<p>Configure bucket, region and optional key prefix. Leave endpoint blank for AWS; R2/B2 require the provider’s HTTPS endpoint. Select the IAM role/default SDK credential chain, access keys, or temporary STS credentials. Static key fields are hidden for the default chain; the session-token field appears only for STS. Only the installation-owned namespace is managed. Multipart sessions are checkpointed; multipart ETags are not treated as MD5 checksums. Verification reads back the actual bytes.</p>
 
 <p><strong>Require versioning</strong> checks that bucket versioning already exists. <strong>Require retention lock</strong> additionally checks pre-enabled Object Lock and requests a COMPLIANCE retain-until period. These are opt-in per destination; the plugin never enables bucket-wide irreversible policies. Verify that the intended lock period and cost are acceptable before use. Protected uploads are checked again through object metadata.</p>
 
@@ -263,9 +275,170 @@ sudo systemctl status redmine-backup-worker.service</pre>
 
 <h2 id="configuration-label-Retry+and+history"><a href="#configuration-label-Retry+and+history">Retry and history</a></h2>
 
+<p>The <strong>Show backup status on administrator homepage</strong> option is on by default. The homepage panel shows the latest result, last verified local/remote success, worker heartbeat, schedule and recovery mode. It does not expose paths, credentials or backup controls to bank/non-administrator users. Scheduling remains disabled until explicitly enabled.</p>
+
 <p>Back Up Now, Retry Upload, Retry Packaging and Test Notification enqueue durable work. The browser does not perform long-running capture or transfer. History separates local capture, packaging, primary/secondary verification, requested protection and cleanup. Retry Packaging checks the preserved manifest/components before creating a new wrapper. No bandwidth throttle is configured, but provider Retry-After/backoff remains in effect.</p>
 
 <p>Check Setup queues tool/path/disk/provider capability checks and shows their results on the dashboard. Backup/upload failures always generate a deduplicated notification request. Recovery confirmations and scheduled daily-success summaries are optional/off by default. Emails include the run/event, timestamp, last local/remote success and one administrator details link. Recipient selection is resolved against active current users/group members at delivery time.</p>
+</section>
+<section id="authentication" aria-label="Provider authentication"><span id="authentication-top"></span>
+<h1 id="authentication-label-Storage+provider+authentication"><a href="#authentication-label-Storage+provider+authentication">Storage provider authentication</a></h1>
+
+<p>Authentication is provider-specific. Browser OAuth is implemented for Google Drive and OneDrive; an application registration and consent from the actual storage account are still required. No provider becomes connected merely by installing this plugin. Tokens and client secrets are never shown in the page source or stored as plaintext Redmine settings.</p>
+
+<h2 id="authentication-label-Implemented+providers+and+visible+inputs"><a href="#authentication-label-Implemented+providers+and+visible+inputs">Implemented providers and visible inputs</a></h2>
+
+<table role="table">
+<thead>
+<tr>
+<th>Provider / authentication</th>
+<th>Inputs shown in the plugin</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Google Drive — browser OAuth 2.0 + S256 PKCE</td>
+<td>Client ID, confidential Web client secret, registered HTTPS callback (read-only), destination folder ID (optional), connection status and Save and Connect</td>
+</tr>
+<tr>
+<td>OneDrive — delegated browser OAuth 2.0 + S256 PKCE</td>
+<td>Client ID, Web client secret where required, Microsoft tenant, callback, optional destination folder, connection status and Save and Connect</td>
+</tr>
+<tr>
+<td>S3 — IAM role / default SDK credential chain</td>
+<td>Region, bucket, optional HTTPS endpoint/prefix; credentials supplied to the worker outside the form</td>
+</tr>
+<tr>
+<td>S3 — access key</td>
+<td>Destination fields plus access key ID and secret access key</td>
+</tr>
+<tr>
+<td>S3 — temporary STS credentials</td>
+<td>Destination fields plus access key ID, secret and session token</td>
+</tr>
+<tr>
+<td>SFTP — SSH private key</td>
+<td>Host, port, SSH username, directory, known_hosts file, private-key path and optional key passphrase</td>
+</tr>
+<tr>
+<td>SFTP — SSH password</td>
+<td>Host, port, SSH username, directory, known_hosts file and password</td>
+</tr>
+</tbody>
+</table>
+
+<p>The form changes when provider/authentication selection changes. Irrelevant fields are hidden and disabled; server-side allowlists reject unrelated provider fields. Versioning/Object Lock controls are shown only for S3-compatible destinations. Secondary configuration remains optional and is disabled unless explicitly enabled.</p>
+
+<p>S3-compatible services such as Cloudflare R2 and Backblaze B2 normally use their scoped S3 access keys and endpoint. S3 requests use request signing, not a universal browser OAuth login. The default AWS SDK chain can use supported role, environment, profile, web-identity or other SDK credential sources already provisioned for the service account; this is not an interactive plugin sign-in flow.</p>
+
+<h2 id="authentication-label-Google+Drive+setup"><a href="#authentication-label-Google+Drive+setup">Google Drive setup</a></h2>
+<ol><li>
+<p>In Google Cloud, create/select a project, enable the Drive API and configure the OAuth consent screen. If the application is in testing, add the account that will connect as a test user. Review Google’s testing/refresh-token lifetime rules before relying on unattended backups.</p>
+</li><li>
+<p>Create an OAuth client of type Web application. Register exactly the HTTPS callback displayed on the plugin page, including any Redmine relative root.</p>
+</li><li>
+<p>Select Google Drive and Browser Sign-in in Redmine. Enter the client ID and Web client secret. Leave destination folder ID blank to create an application-accessible Redmine Backups folder after consent, or supply a folder already authorized for the application.</p>
+</li><li>
+<p>Click Save Settings and Connect Storage Account. Choose the Google account, review the requested access, and consent. The callback verifies administrator/session/state/expiry, exchanges the code using the PKCE verifier and stores the refresh grant encrypted in private control storage.</p>
+</li><li>
+<p>Confirm Connected and the destination folder ID, run Check Setup, then validate a backup/upload before enabling the schedule.</p>
+</li></ol>
+
+<p>Scope is <code>https://www.googleapis.com/auth/drive.file</code>, with offline access. It is narrower than unrestricted Drive access. Typing an arbitrary folder ID does not automatically authorize access to that folder. If in doubt, use the auto-created application folder. Workspace/Shared Drive membership, policy and storage/quota constraints require tenant-specific validation. This plugin’s current browser flow is user-delegated; a service-account/domain-delegation UI is not implemented.</p>
+
+<h2 id="authentication-label-OneDrive+setup"><a href="#authentication-label-OneDrive+setup">OneDrive setup</a></h2>
+<ol><li>
+<p>Register a Microsoft Entra Web application for the intended account audience. Configure the displayed HTTPS callback and delegated Microsoft Graph <code>Files.ReadWrite</code> permission with offline access; satisfy the tenant’s consent policy.</p>
+</li><li>
+<p>Create a client secret if required by the confidential Web registration. Enter client ID, secret and tenant ID in the plugin. Blank tenant defaults to <code>organizations</code>; consumer registrations may use <code>consumers</code> or <code>common</code> with the matching audience.</p>
+</li><li>
+<p>Leave folder ID blank to create Redmine Backups after consent, or select an accessible existing folder in the signed-in user’s drive.</p>
+</li><li>
+<p>Save and Connect, select the sending storage account and grant access. The plugin stores a private refresh grant and resumes unattended access by refresh-token renewal.</p>
+</li><li>
+<p>Validate Check Setup and an actual upload. The initial adapter uses <code>/me/drive</code>; arbitrary SharePoint library routing and app-only client-credentials/certificate authentication are not implemented.</p>
+</li></ol>
+
+<p>Storage authorization is separate from SMTP OAuth. A tenant/client ID configured for a mail plugin does not automatically grant file-storage access. Registration/consent cannot be skipped, and end-to-end connection is not claimed until the intended provider account actually authorizes the application.</p>
+
+<h2 id="authentication-label-OAuth+troubleshooting"><a href="#authentication-label-OAuth+troubleshooting">OAuth troubleshooting</a></h2>
+<ul><li>
+<p>Callback mismatch: copy the exact displayed callback to the provider’s Web application registration. GitHub Pages is documentation hosting, not the Redmine callback host.</p>
+</li><li>
+<p>Client credentials rejected: verify the client/application ID, secret value (not secret ID), expiry and application type.</p>
+</li><li>
+<p>Expired/mismatched state: start a new Connect flow in the same administrator browser session. Completing another destination’s concurrent sign-in can replace the pending state.</p>
+</li><li>
+<p>Missing refresh grant: request offline access and reconnect with consent. The plugin does not claim an unattended connection from an access token alone.</p>
+</li><li>
+<p>Folder access denied: use an application-authorized folder or let Connect create one; verify account/tenant policies.</p>
+</li><li>
+<p>Changing provider, client or tenant invalidates the old saved grant. Secrets remain write-only; a blank secret field preserves the configured value.</p>
+</li></ul>
+
+<h2 id="authentication-label-Other+cataloged+providers"><a href="#authentication-label-Other+cataloged+providers">Other cataloged providers</a></h2>
+
+<p>These mechanisms exist at the providers but their adapters are not implemented in this release.</p>
+
+<table role="table">
+<thead>
+<tr>
+<th>Provider / protocol</th>
+<th>Available authentication families</th>
+<th>Plugin status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Google Cloud Storage</td>
+<td>Service-account/attached identity, workload identity federation, Application Default Credentials, delegated OAuth where appropriate</td>
+<td>Future adapter; separate from Drive</td>
+</tr>
+<tr>
+<td>Azure Blob Storage</td>
+<td>Microsoft Entra identity/managed identity, SAS, Shared Key</td>
+<td>Future REST adapter</td>
+</tr>
+<tr>
+<td>Dropbox</td>
+<td>OAuth 2.0 authorization code, PKCE where appropriate, offline refresh tokens</td>
+<td>Future adapter</td>
+</tr>
+<tr>
+<td>Box</td>
+<td>User OAuth 2.0; enterprise-approved client-credentials/JWT flows depending on app type</td>
+<td>Future adapter</td>
+</tr>
+<tr>
+<td>Nextcloud / ownCloud / WebDAV</td>
+<td>HTTPS username/app password or a server-supported identity integration</td>
+<td>Future adapter</td>
+</tr>
+<tr>
+<td>FTPS</td>
+<td>Username/password over TLS; additional server-supported certificate policies</td>
+<td>Future adapter</td>
+</tr>
+<tr>
+<td>Mounted SMB/NFS</td>
+<td>OS-managed share credentials, Kerberos or filesystem identity/permissions</td>
+<td>Future destination; mount provisioning remains outside the plugin</td>
+</tr>
+</tbody>
+</table>
+
+<h2 id="authentication-label-Primary+references"><a href="#authentication-label-Primary+references">Primary references</a></h2>
+<ul><li>
+<p><a href="https://developers.google.com/identity/protocols/oauth2/web-server">Google Web-server OAuth</a> and <a href="https://developers.google.com/workspace/drive/api/guides/api-specific-auth">Drive scopes</a>.</p>
+</li><li>
+<p><a href="https://learn.microsoft.com/en-us/graph/auth-v2-user">Microsoft delegated Graph access</a>.</p>
+</li><li>
+<p><a href="https://docs.aws.amazon.com/sdk-for-ruby/v3/developer-guide/credential-providers.html">AWS Ruby SDK credential chain</a>.</p>
+</li><li>
+<p><a href="https://learn.microsoft.com/en-us/azure/storage/common/authorize-data-access">Azure data authorization</a>, <a href="https://cloud.google.com/docs/authentication/provide-credentials-adc">Google Application Default Credentials</a>.</p>
+</li><li>
+<p><a href="https://developers.dropbox.com/oauth-guide">Dropbox OAuth</a>, <a href="https://developer.box.com/guides/authentication/">Box authentication</a>, <a href="https://docs.nextcloud.com/server/latest/developer_manual/client_apis/WebDAV/basic.html">Nextcloud WebDAV</a>.</p>
+</li></ul>
 </section>
 <section id="recovery" aria-label="Recovery"><span id="recovery-top"></span>
 <h1 id="recovery-label-Redmine+recovery+guide"><a href="#recovery-label-Redmine+recovery+guide">Redmine recovery guide</a></h1>
@@ -546,7 +719,7 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 
 <p>Excluded paths: retired SDK dependencies; rsync/rclone/CLI-only transfer integrations; plugin-controlled SMB/NFS mounting; plain FTP/HTTP; services exposing no usable transfer API; and upload-only URLs without the operations required for a managed backup destination.</p>
 
-<p>See <a href="CONFIGURATION_md.html">configuration</a> for supported operations and <a href="REFERENCE_md.html">references</a> for primary sources. Existing S3 lock/versioning APIs are supported only where the endpoint actually implements them; no universal immutable protection is claimed.</p>
+<p>See <a href="AUTHENTICATION_md.html">provider authentication</a> for the supported mechanisms and fields, <a href="CONFIGURATION_md.html">configuration</a> for supported operations and <a href="REFERENCE_md.html">references</a> for primary sources. Existing S3 lock/versioning APIs are supported only where the endpoint actually implements them; no universal immutable protection is claimed.</p>
 </section>
 <section id="security" aria-label="Security"><span id="security-top"></span>
 <h1 id="security-label-Security+and+operational+limits"><a href="#security-label-Security+and+operational+limits">Security and operational limits</a></h1>
@@ -579,7 +752,7 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 <section id="implementation" aria-label="Implementation"><span id="implementation-top"></span>
 <h1 id="implementation-label-Implementation+coverage"><a href="#implementation-label-Implementation+coverage">Implementation coverage</a></h1>
 
-<p>Initial native plugin version: 0.1.0. This describes source implementation, not proof of production operation.</p>
+<p>Current native plugin version: 0.2.0. This describes source implementation, not proof of live provider authorization or a successful restore.</p>
 
 <table role="table">
 <thead>
@@ -592,6 +765,14 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 <tr>
 <td>Admin UI</td>
 <td>Administrator-only dashboard, settings, queued actions, history, health and audit</td>
+</tr>
+<tr>
+<td>Homepage</td>
+<td>Optional administrator-only latest result, last local/remote success, worker heartbeat and schedule summary</td>
+</tr>
+<tr>
+<td>Authentication</td>
+<td>Provider/method-specific inputs; Drive/OneDrive browser OAuth with PKCE and encrypted refresh grants; S3 SDK chain/static/STS; SFTP key/password</td>
 </tr>
 <tr>
 <td>Database configuration</td>
@@ -747,9 +928,9 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 <section id="validation" aria-label="Validation"><span id="validation-top"></span>
 <h1 id="validation-label-Validation"><a href="#validation-label-Validation">Validation</a></h1>
 
-<p>Local result on 15 November 2026: 72 independent unit tests, 292 assertions, zero failures/errors/skips on portable Ruby 4.0.9. Ruby syntax, workflow YAML indentation, offline-document generation, JavaScript syntax and documentation-link checks passed. RDoc is an explicit standalone test/documentation dependency and is not injected into Redmine’s production dependency set.</p>
+<p>Local result on 15 November 2026: 87 independent unit tests, 350 assertions, zero failures/errors/skips on portable Ruby 4.0.9. Ruby syntax, workflow YAML indentation, offline-document generation, JavaScript syntax and documentation-link checks passed. Provider-form regression checks cover disabled irrelevant inputs, authentication changes and optional secondary storage. RDoc is an explicit standalone test/documentation dependency and is not injected into Redmine’s production dependency set.</p>
 
-<p>The <a href="https://github.com/KrishnaST/redmine-backup-plugin/actions/workflows/test.yml">current CI workflow</a> runs the unit suite on Ruby 3.3, 3.4 and 4.0 and an isolated Redmine/PostgreSQL integration job. The integration cases cover administrator authorization, settings persistence, native test-mail delivery, an actual exported snapshot/database dump, referenced attachment capture and production-style eager loading. CI results are attached to the current repository history rather than obsolete rewritten commit links.</p>
+<p>The <a href="https://github.com/KrishnaST/redmine-backup-plugin/actions/workflows/test.yml">current CI workflow</a> runs the unit suite on Ruby 3.3, 3.4 and 4.0 and an isolated Redmine/PostgreSQL integration job. The integration cases cover administrator authorization, homepage privacy, provider form rendering, one-click save/connect, state-checked encrypted OAuth callback persistence/replay protection, settings persistence, native test-mail delivery, an actual exported snapshot/database dump, referenced attachment capture and production-style eager loading. CI results are attached to the current repository history rather than obsolete rewritten commit links.</p>
 
 <p>The CI PostgreSQL client wrappers use the isolated test container’s matching binaries. They are test infrastructure only and are not installed or required by the production plugin. Native mail uses the in-memory test delivery transport; it sends no external email.</p>
 

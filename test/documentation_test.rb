@@ -11,7 +11,7 @@ class DocumentationTest < BackupTest
     messages, status = Open3.capture2e(RbConfig.ruby, generator, output)
     assert status.success?, messages
     html = File.read(output)
-    assert_equal 11, html.scan('<section ').length
+    assert_equal 12, html.scan('<section ').length
     identifiers = html.scan(/\bid="([^"]+)"/).flatten
     assert_equal identifiers.uniq, identifiers
     html.scan(/href="#([^"]+)"/).flatten.each { |identifier| assert_includes identifiers, identifier }

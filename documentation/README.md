@@ -4,6 +4,7 @@
 - [Offline HTML guide](index.html)
 - [Installation and worker supervision](INSTALLATION.md)
 - [Configuration, configurable retention and providers](CONFIGURATION.md)
+- [Provider authentication and OAuth setup](AUTHENTICATION.md)
 - [Recovery and offline verification](RECOVERY.md)
 - [Private recovery worksheet template](RECOVERY-WORKSHEET.md)
 - [Deployment, maintenance and repository history](DEPLOYMENT.md)

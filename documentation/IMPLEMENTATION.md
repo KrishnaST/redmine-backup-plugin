@@ -1,10 +1,12 @@
 # Implementation coverage
 
-Initial native plugin version: 0.1.0. This describes source implementation, not proof of production operation.
+Current native plugin version: 0.2.0. This describes source implementation, not proof of live provider authorization or a successful restore.
 
 | Requirement | Implementation |
 | --- | --- |
 | Admin UI | Administrator-only dashboard, settings, queued actions, history, health and audit |
+| Homepage | Optional administrator-only latest result, last local/remote success, worker heartbeat and schedule summary |
+| Authentication | Provider/method-specific inputs; Drive/OneDrive browser OAuth with PKCE and encrypted refresh grants; S3 SDK chain/static/STS; SFTP key/password |
 | Database configuration | Reads Redmine's resolved ActiveRecord primary configuration; no duplicate editable credentials |
 | Full daily database/files | Exported PostgreSQL read-only snapshot, custom dump, full application archive and snapshot-referenced attachments |
 | Discovery/coverage | Application and attachment roots, configured Redmine file/directory environment references, readable Redmine systemd units/environment files and additional paths; changes highlighted |

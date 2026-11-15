@@ -1,0 +1,57 @@
+<% target = @config[slot] %>
+<% method = RedmineBackup::ProviderSettingsService.authentication(target) %>
+<fieldset class="box backup-destination" data-slot="<%= slot %>">
+  <legend><%= slot.capitalize %> destination<%= slot == 'secondary' ? ' (optional)' : '' %></legend>
+  <% if slot == 'secondary' %>
+    <p><label>Enable secondary</label><%= check_box_tag 'backup[secondary][enabled]', '1', target['enabled'], class: 'backup-secondary-enabled' %></p>
+  <% end %>
+  <div class="backup-destination-body">
+    <% if slot == 'secondary' %><p><label>Secondary mode</label><%= select_tag 'backup[secondary][mode]', options_for_select([['Choose mode', ''], ['Redundant — both copies required', 'redundant'], ['Failover — secondary after primary failure', 'failover']], target['mode']) %></p><% end %>
+    <p><label>Storage provider</label><%= select_tag "backup[#{slot}][provider]", options_for_select([['Google Drive', 'google_drive'], ['OneDrive', 'onedrive'], ['SFTP', 'sftp'], ['S3 compatible', 's3']], target['provider']), class: 'backup-provider' %></p>
+    <p><label>Authentication</label>
+      <select name="backup[<%= slot %>][auth_method]" class="backup-authentication">
+        <% [['Browser sign-in — OAuth 2.0 + PKCE', 'oauth2', 'google_drive onedrive'], ['SSH private key', 'ssh_key', 'sftp'], ['SSH password', 'password', 'sftp'], ['IAM role / default SDK credential chain', 'sdk_chain', 's3'], ['Access key and secret', 'access_key', 's3'], ['Temporary credentials — STS', 'session_token', 's3']].each do |label, value, providers| %>
+          <option value="<%= value %>" data-providers="<%= providers %>" <%= value == method ? 'selected' : '' %>><%= label %></option>
+        <% end %>
+      </select>
+    </p>
+    <p><label>Remote dates to keep<br>(blank inherits default)</label><%= number_field_tag "backup[#{slot}][remote_keep_dates]", target['remote_keep_dates'], min: 1, max: 3650 %></p>
+    <div class="backup-provider-fields" data-providers="google_drive onedrive">
+      <p><label>OAuth client ID</label><%= text_field_tag "backup[#{slot}][client_id]", target['client_id'], size: 65 %></p>
+      <p><label>OAuth client secret</label><%= password_field_tag "backup[#{slot}][client_secret]", '', autocomplete: 'new-password', placeholder: target['client_secret'].present? ? 'Configured — blank preserves value' : 'Required for confidential Web applications', size: 65 %></p>
+      <p><label>Registered HTTPS callback</label><%= text_field_tag "#{slot}_callback", @callback_url || 'Configure the Redmine HTTPS host first', readonly: true, size: 85 %></p>
+      <p><label>Destination folder ID</label><%= text_field_tag "backup[#{slot}][folder_id]", target['folder_id'], size: 65 %></p>
+      <p class="backup-hint">Leave the folder ID blank to create a Redmine Backups folder after authorization. App registration is required; see the <%= link_to 'provider setup guide', 'https://krishnast.github.io/redmine-backup-plugin/#authentication', target: '_blank', rel: 'noopener' %>.</p>
+      <p><label>Connection status</label><strong><%= target['refresh_token'].present? ? 'Connected — private refresh grant saved' : 'Not connected' %></strong></p>
+      <p><%= button_tag 'Save settings and connect storage account', name: 'connect_slot', value: slot, type: 'submit' %></p>
+    </div>
+    <div class="backup-provider-fields" data-providers="onedrive">
+      <p><label>Microsoft tenant ID</label><%= text_field_tag "backup[#{slot}][tenant_id]", target['tenant_id'], placeholder: 'organizations', size: 65 %></p>
+    </div>
+    <div class="backup-provider-fields" data-providers="s3">
+      <% { 'endpoint' => 'HTTPS endpoint (blank for AWS)', 'region' => 'Region', 'bucket' => 'Bucket', 'prefix' => 'Key prefix' }.each do |key, label| %><p><label><%= label %></label><%= text_field_tag "backup[#{slot}][#{key}]", target[key], size: 65 %></p><% end %>
+      <p class="backup-hint">IAM/default-chain mode uses credentials already available to the worker. R2 and B2 normally use their S3 endpoint and scoped access keys; S3 does not use a browser OAuth login.</p>
+      <p><label>Require provider versioning</label><%= check_box_tag "backup[#{slot}][versioning]", '1', target['versioning'] %></p>
+      <p><label>Require retention lock</label><%= check_box_tag "backup[#{slot}][retention_lock]", '1', target['retention_lock'] %></p>
+      <p><label>Lock period (days)</label><%= number_field_tag "backup[#{slot}][lock_days]", target['lock_days'], min: 1, max: 3650 %></p>
+      <p class="backup-hint">Versioning/Object Lock must already be supported and enabled at the endpoint. Locked retention can exceed the cleanup count.</p>
+    </div>
+    <div class="backup-provider-fields" data-providers="s3" data-methods="access_key session_token">
+      <p><label>Access key ID</label><%= text_field_tag "backup[#{slot}][access_key_id]", target['access_key_id'], size: 65 %></p>
+      <p><label>Secret access key</label><%= password_field_tag "backup[#{slot}][secret_access_key]", '', autocomplete: 'new-password', placeholder: target['secret_access_key'].present? ? 'Configured — blank preserves value' : '', size: 65 %></p>
+    </div>
+    <div class="backup-provider-fields" data-providers="s3" data-methods="session_token">
+      <p><label>STS session token</label><%= password_field_tag "backup[#{slot}][session_token]", '', autocomplete: 'new-password', placeholder: target['session_token'].present? ? 'Configured — blank preserves value' : '', size: 65 %></p>
+    </div>
+    <div class="backup-provider-fields" data-providers="sftp">
+      <% { 'host' => 'SSH host', 'port' => 'SSH port (22)', 'username' => 'SSH username', 'directory' => 'Existing remote directory', 'known_hosts' => 'Local known_hosts file' }.each do |key, label| %><p><label><%= label %></label><%= text_field_tag "backup[#{slot}][#{key}]", target[key], size: 65 %></p><% end %>
+    </div>
+    <div class="backup-provider-fields" data-providers="sftp" data-methods="ssh_key">
+      <p><label>Local SSH private key file</label><%= text_field_tag "backup[#{slot}][private_key_path]", target['private_key_path'], size: 65 %></p>
+      <p><label>Key passphrase (optional)</label><%= password_field_tag "backup[#{slot}][key_passphrase]", '', autocomplete: 'new-password', placeholder: target['key_passphrase'].present? ? 'Configured — blank preserves value' : '', size: 65 %></p>
+    </div>
+    <div class="backup-provider-fields" data-providers="sftp" data-methods="password">
+      <p><label>SSH password</label><%= password_field_tag "backup[#{slot}][password]", '', autocomplete: 'new-password', placeholder: target['password'].present? ? 'Configured — blank preserves value' : '', size: 65 %></p>
+    </div>
+  </div>
+</fieldset>

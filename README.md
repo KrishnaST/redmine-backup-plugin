@@ -1,10 +1,11 @@
 # Redmine Backup
 
-Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.1.0 includes unit/integration tests and has been installed with verified production boot and worker health. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
+Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.2.0 adds provider-specific authentication forms, browser OAuth with PKCE for Google Drive/OneDrive, and an administrator-only homepage status summary. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
 
 ## Features
 
 - Admin UI under **Administration → Backups**; no manually maintained backup configuration file.
+- Optional administrator-only homepage summary: latest result, last verified local/remote backup, worker health and schedule state.
 - Full database and file backup every day, default 20:00 Asia/Kolkata. Online capture uses an exported read-only PostgreSQL snapshot and validates referenced attachments.
 - Configurable retention: local successful dates, default remote successful dates, and an optional override for each destination. Defaults are 3 local / 10 remote dates; valid range 1–3650. Pending copies and the last good copy are protected.
 - Primary destination with an optional secondary, disabled by default. **Redundant** requires both verified copies. **Failover** attempts secondary only after primary retries fail.
@@ -18,7 +19,7 @@ Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified 
 
 ## Install and configure
 
-See [the full plan](documentation/PLAN.md), [the offline HTML guide](documentation/index.html), [installation](documentation/INSTALLATION.md), [configuration and providers](documentation/CONFIGURATION.md), [recovery](documentation/RECOVERY.md), [security and operational limits](documentation/SECURITY.md), and [validation](documentation/VALIDATION.md). The [documentation index](documentation/README.md) includes deployment operations, the recovery worksheet and source/schema references.
+See the [hosted installation and configuration guide](https://krishnast.github.io/redmine-backup-plugin/), [full plan](documentation/PLAN.md), [offline HTML guide](documentation/index.html), [installation](documentation/INSTALLATION.md), [provider authentication](documentation/AUTHENTICATION.md), [configuration](documentation/CONFIGURATION.md), [recovery](documentation/RECOVERY.md), [security and operational limits](documentation/SECURITY.md), and [validation](documentation/VALIDATION.md). The [documentation index](documentation/README.md) includes deployment operations, the recovery worksheet and source/schema references. All durable documentation is maintained in this repository; GitHub Pages publishes only `documentation/`.
 
 Clone into `REDMINE_ROOT/plugins/redmine_backup_plugin`, run `bundle install` from the Redmine root after reviewing dependency resolution, restart Redmine, then configure **Administration → Backups**. No plugin schema migrations are needed: Redmine stores the non-secret plugin settings and this plugin uses private encrypted filesystem state for queue, credentials and history.
 

@@ -24,6 +24,8 @@ jobs:
                 run: ruby tools/check_sources.rb
             -
                 run: node --check assets/javascripts/backups.js
+            -
+                run: node test/provider_form_test.js
     redmine:
         runs-on: ubuntu-latest
         services:
