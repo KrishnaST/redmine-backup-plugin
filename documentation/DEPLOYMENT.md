@@ -25,6 +25,7 @@ If boot/dependency verification fails, stop the backup worker, remove only the n
 - `tools/deployment_preflight.rb` reads the installed Redmine metadata from its own application root/environment.
 - `tools/deployment_verify.rb` verifies the installed plugin, disabled initial policy, private state and worker heartbeat using read-only database access.
 - `tools/admin_smoke.py` verifies the administrator page through normal HTTPS login; it prompts privately and does not trigger a backup or email.
+- `tools/storage_folder_smoke.rb --create-verify-delete`, run from Redmine's application root through its normal Bundler/service environment, creates a uniquely named live canary folder in the primary destination, uploads the non-secret recovery guide, verifies bytes/checksum and ownership, then deletes that file and the empty folder. It acquires the worker lock and requires no active job; it does not delete existing backups or change settings. OAuth renewal is saved privately if needed. This acceptance check intentionally writes to configured storage; it is not part of the offline unit suite or a restore drill.
 - `tools/remote_console.py` is an optional maintainer workstation transport using Paramiko and strict existing known_hosts verification. It prompts without echo for SSH credentials, keeps them only in memory and accepts JSON execute/upload requests. Paramiko is a workstation dependency only; the installed Ruby plugin never needs Python or this helper. Close the transport after maintenance.
 
 ## Repository identity and history
