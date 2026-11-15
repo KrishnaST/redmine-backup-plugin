@@ -15,7 +15,8 @@ module RedmineBackup
 
     def initialize
       RedmineBackup.load_runtime!
-      raw = Setting.plugin_redmine_backup_plugin.to_h
+      # Redmine caches this hash: never merge private credentials into that shared object.
+      raw = JSON.parse(JSON.generate(Setting.plugin_redmine_backup_plugin.to_h))
       defaults = File.join(Attachment.storage_path, 'redmine-backups')
       root = raw['local_directory'].to_s.empty? ? defaults : raw['local_directory']
       parent = File.realpath(File.dirname(File.expand_path(root)))

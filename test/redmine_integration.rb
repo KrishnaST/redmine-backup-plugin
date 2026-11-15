@@ -104,6 +104,16 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     refute runtime.config['primary'].key?('refresh_token')
   end
 
+  def test_runtime_never_merges_credentials_into_redmine_cached_settings
+    sign_in
+    post '/admin/backups/settings', params: { backup: { primary: { provider: 'google_drive', client_id: 'client', client_secret: 'private-secret' } } }
+    runtime = RedmineBackup::Runtime.new
+    assert_equal 'private-secret', runtime.config['primary']['client_secret']
+    refute_includes Setting.plugin_redmine_backup_plugin.to_json, 'private-secret'
+    Setting.clear_cache
+    refute_includes Setting.plugin_redmine_backup_plugin.to_json, 'private-secret'
+  end
+
   def test_valid_callback_persists_private_grant_and_rejects_replay
     sign_in
     post '/admin/backups/settings', params: { connect_slot: 'primary', backup: { primary: { provider: 'onedrive', client_id: 'client', folder_id: 'folder' } } }
