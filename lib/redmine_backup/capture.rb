@@ -35,7 +35,7 @@ module RedmineBackup
       manifest = { 'format' => 1, 'id' => run['id'], 'date' => run['date'], 'installation_id' => run['installation_id'],
                    'backup_folder' => BackupLayout.folder_name(run), 'packaging' => @config['packaging'],
                    'created_at' => Time.now.utc.iso8601, 'plugin_version' => VERSION,
-                   'ruby_version' => RUBY_VERSION, 'rails_version' => defined?(Rails) ? Rails.version : nil,
+                   'ruby_version' => RUBY_VERSION, 'platform' => RUBY_PLATFORM, 'rails_version' => defined?(Rails) ? Rails.version : nil,
                    'redmine_version' => defined?(Redmine::VERSION) ? Redmine::VERSION.to_s : nil,
                    'application_root' => @application_root, 'attachment_root' => @attachment_root,
                    'sources' => sources, 'gateway_included' => false, 'files' => [], 'artifacts' => [] }
@@ -148,18 +148,19 @@ module RedmineBackup
 
     def archive_sources(tar, manifest)
       roots = sources.reject { |path| path == @attachment_root }
-      roots.reject! { |path| path != @application_root && path.start_with?(@application_root + '/') }
+      roots.reject! { |path| PlatformService.within?(path, @application_root) }
       roots.each_with_index do |root, index|
         Find.find(root) do |path|
           if excluded?(path)
             Find.prune if File.directory?(path)
             next
           end
-          relative = path == root ? (File.file?(root) ? File.basename(root) : '') : Pathname.new(path).relative_path_from(Pathname.new(root)).to_s
+          relative = path == root ? (File.file?(root) ? File.basename(root) : '') : Pathname.new(path).relative_path_from(Pathname.new(root)).to_s.tr('\\', '/')
           name = "#{index.zero? ? 'application' : "external/#{index}"}/#{relative}"
-          if File.symlink?(path)
+          if PlatformService.link?(path)
+            raise Error, 'REPARSE_SOURCE_REQUIRES_EXPLICIT_COVERAGE' unless File.symlink?(path)
             resolved = File.realpath(path)
-            raise Error, 'EXTERNAL_SYMLINK_REQUIRES_EXPLICIT_COVERAGE' unless resolved.start_with?(root + '/') && !excluded?(resolved)
+            raise Error, 'EXTERNAL_SYMLINK_REQUIRES_EXPLICIT_COVERAGE' unless PlatformService.within?(resolved, root) && !excluded?(resolved)
             tar.add_symlink(name, File.readlink(path), File.lstat(path).mode & 0o777)
           elsif File.directory?(path)
             tar.mkdir(name, File.stat(path).mode & 0o777)
@@ -176,13 +177,13 @@ module RedmineBackup
     def excluded?(path)
       resolved = File.expand_path(path)
       return true if resolved.split(/[\\\/]/).any? { |part| part.match?(/\A(?:gateway(?:[-_.].*)?|cbs-gateway|letsencrypt)\z/i) }
-      return true if resolved == @store.root || resolved.start_with?(@store.root + '/')
-      return true if resolved == @attachment_root || resolved.start_with?(@attachment_root + '/')
-      %w[.git log tmp].any? { |part| resolved == File.join(@application_root, part) || resolved.start_with?(File.join(@application_root, part) + '/') }
+      return true if PlatformService.within?(resolved, @store.root, include_root: true)
+      return true if PlatformService.within?(resolved, @attachment_root, include_root: true)
+      %w[.git log tmp].any? { |part| PlatformService.within?(resolved, File.join(@application_root, part), include_root: true) }
     end
 
     def add_file(tar, path, name, expected_digest: nil)
-      raise Error, 'SYMLINK_SOURCE_FILE' if File.symlink?(path)
+      raise Error, 'SYMLINK_SOURCE_FILE' if PlatformService.link?(path)
       before = File.stat(path)
       @resources.check!
       digest = Digest::SHA256.new
@@ -215,12 +216,12 @@ module RedmineBackup
       relative = File.join(row['disk_directory'].to_s, row.fetch('disk_filename'))
       raise Error, 'UNSAFE_ATTACHMENT_PATH' if relative.split(/[\\\/]/).include?('..') || Pathname.new(relative).absolute?
       path = File.realpath(File.join(@attachment_root, relative))
-      raise Error, 'UNSAFE_ATTACHMENT_PATH' unless path.start_with?(@attachment_root + '/')
+      raise Error, 'UNSAFE_ATTACHMENT_PATH' unless PlatformService.within?(path, @attachment_root)
       path
     end
 
     def tool(name)
-      @config['pg_bin'].empty? ? name : File.join(@config['pg_bin'], name)
+      PlatformService.executable(name, directory: @config['pg_bin'])
     end
 
     def pg_options

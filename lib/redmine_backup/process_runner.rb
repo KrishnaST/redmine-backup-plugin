@@ -26,7 +26,14 @@ module RedmineBackup
             terminate(waiter.pid)
           end
         end
-        reader = Thread.new { stderr.read(65_536); IO.copy_stream(stderr, File::NULL) }
+        writer.report_on_exception = false
+        reader = Thread.new do
+          stderr.read(65_536)
+          IO.copy_stream(stderr, File::NULL)
+        rescue IOError
+          nil
+        end
+        reader.report_on_exception = false
         unless waiter.join(@timeout)
           terminate(waiter.pid)
           waiter.join(5) || terminate(waiter.pid, 'KILL')
@@ -36,15 +43,22 @@ module RedmineBackup
         reader.value
         raise writer_error if writer_error
         raise Error, 'TOOL_FAILED' unless waiter.value.success?
+      rescue Exception
+        # Managed shutdown must also stop pg_dump before releasing its snapshot/lock.
+        if waiter.alive?
+          terminate(waiter.pid)
+          waiter.join(2) || terminate(waiter.pid, 'KILL')
+        end
+        writer&.join(2)
+        reader&.join(2)
+        raise
       end
     end
 
     private
 
     def terminate(pid, signal = 'TERM')
-      Process.kill(signal, Gem.win_platform? ? pid : -pid)
-    rescue Errno::ESRCH
-      nil
+      PlatformService.terminate_process(pid, signal: signal, group: true)
     end
   end
 end

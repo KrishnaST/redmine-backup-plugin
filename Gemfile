@@ -4,6 +4,7 @@ gem 'aws-sdk-s3', '~> 1' unless dependencies.any? { |dependency| dependency.name
 gem 'net-sftp', '~> 4' unless dependencies.any? { |dependency| dependency.name == 'net-sftp' }
 gem 'pg', '>= 1.5', '< 2' unless dependencies.any? { |dependency| dependency.name == 'pg' }
 gem 'rubyzip', '>= 3.0', '< 4' unless dependencies.any? { |dependency| dependency.name == 'rubyzip' }
+gem 'fiddle', '~> 1.1' if Gem.win_platform? && !dependencies.any? { |dependency| dependency.name == 'fiddle' }
 
 if File.expand_path(Bundler.default_gemfile) == File.expand_path(__FILE__)
   group :test do

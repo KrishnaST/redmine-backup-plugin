@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'open3'
-
 module RedmineBackup
   class Resources
     def initialize(root:, reserve_mb:, timeout_seconds:)
@@ -11,11 +9,13 @@ module RedmineBackup
 
     def check!(required_bytes = 0)
       raise Error, 'CAPTURE_TIMEOUT' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > @deadline
-      result, status = Open3.capture2('df', '-Pk', @root, err: File::NULL)
-      raise Error, 'DISK_SPACE_CHECK_FAILED' unless status.success?
-      available = result.lines.last.split[3]
-      raise Error, 'DISK_SPACE_CHECK_FAILED' unless available&.match?(/\A\d+\z/)
-      raise Error, 'DISK_RESERVE_REACHED' if available.to_i * 1024 < @reserve + required_bytes
+      # A short cache avoids starting an OS utility for every archived file.
+      now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      if !@checked_at || now - @checked_at >= 1 || required_bytes.positive?
+        @available = PlatformService.available_bytes(@root)
+        @checked_at = now
+      end
+      raise Error, 'DISK_RESERVE_REACHED' if @available < @reserve + required_bytes
       true
     end
   end

@@ -18,11 +18,11 @@ The verifier checks file sizes and SHA256 against the manifest. The dump catalog
 
 ## 2. Rebuild the environment
 
-Provision a supported Linux host and matching Ruby, Redmine/Rails, PostgreSQL client/server and application dependencies using the captured application/Gemfile.lock. Review the captured version metadata. Provision Redmine's service account, private directories, external dependencies and database role. Recreate role privileges deliberately; this is a single-database dump, not a whole-cluster/global-role backup.
+Provision Linux, Windows or macOS with matching supported Ruby, Redmine/Rails, PostgreSQL clients/server and application dependencies using the captured version metadata and lockfile. An OS change may require different native gems and executable paths; review it explicitly. Provision the Redmine account, private POSIX modes or Windows ACLs, required environment and database role. Recreate role privileges deliberately; this is a single-database dump, not a whole-cluster/global-role backup.
 
 Restore the application archive into private staging, not directly over an operating installation. Inspect archive member names, symlinks and `external_roots` before extraction. `application/` maps to the Redmine root, `attachments/` maps to its attachment storage, and each `external/N/` maps to the corresponding external root in the manifest. Restore external state/configuration/service files to reviewed locations with appropriate ownership and modes. Preserve Rails secret/key material and SMTP private state together; without matching keys, encrypted settings/grants cannot be decrypted.
 
-Install the backup plugin from this repository if its files were not already captured, and install the locked application dependencies. Keep the worker stopped.
+Install the plugin if not already captured and install compatible locked dependencies. Set Recovery Mode before starting Redmine: its worker is automatically managed with the application. Restore target-platform permissions deliberately; TAR modes are not a Windows ACL image.
 
 ## 3. Restore the database
 
@@ -49,7 +49,7 @@ RAILS_ENV=production bundle exec rails runner \
   /private/new-backup-store/restored-plugin-settings.json
 ```
 
-Keep the worker stopped during this operation. The restored Rails key must match the key in the private bootstrap. Reconnect cloud grants if they have expired or rotated since capture. Do not accidentally create a second active installation managing the old remote namespace.
+Keep Redmine stopped or in explicit Recovery Mode during this operation. The restored Rails key must match the bootstrap key. Reconnect expired/rotated grants. Do not create a second active installation managing the original remote namespace.
 
 Start only the web service first. Check administrator login, issue/project data, attachments, themes/plugins, configuration and existing SMTP integration. Inspect the Backups dashboard. Confirm scheduling, cleanup and operational email remain blocked in Recovery Mode. Gateway/HTTPS infrastructure is excluded from this backup and must be provisioned separately.
 

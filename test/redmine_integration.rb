@@ -31,10 +31,26 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
   end
 
   def teardown
+    RedmineBackup::WorkerSupervisorService.stop_for_application
     @attachment&.destroy
     Attachment.storage_path = @previous_storage
     FileUtils.remove_entry(@storage)
     User.current = nil
+  end
+
+  def test_redmine_supervises_its_worker_without_systemd
+    runtime = RedmineBackup::Runtime.new
+    runtime.save!(runtime.config.values.merge('local_directory' => runtime.store.root), actor: @admin.id.to_s)
+    Rails.env.stub(:test?, false) { RedmineBackup::WorkerSupervisorService.start_for_application(Rails.root) }
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 45
+    until runtime.store.read('heartbeat')['at']
+      raise 'Managed Redmine worker did not start' if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+      sleep(0.1)
+    end
+    assert runtime.store.read('heartbeat')['pid'].positive?
+    assert_empty runtime.store.read('runs', [])
+    RedmineBackup::WorkerSupervisorService.stop_for_application
+    assert_empty runtime.store.read('queue', []).reject { |job| job['kind'] == 'health_check' }
   end
 
   def sign_in

@@ -118,7 +118,8 @@ module RedmineBackup
     end
 
     def beat
-      @store.write('heartbeat', 'at' => Time.now.utc.iso8601, 'pid' => Process.pid)
+      @store.write('heartbeat', 'at' => Time.now.utc.iso8601, 'pid' => Process.pid,
+                                'management' => ENV['REDMINE_BACKUP_WORKER_CHILD'] == '1' ? 'redmine' : 'manual')
     end
 
     def schedule
@@ -154,6 +155,7 @@ module RedmineBackup
     end
 
     def execute(job)
+      acknowledged = false
       case job['kind']
       when 'backup' then capture_and_upload(job)
       when 'test_notification'
@@ -161,11 +163,13 @@ module RedmineBackup
       when 'health_check' then setup_health
       end
       @store.audit('job_finished', run: job['run_id'])
+      acknowledged = true
     rescue StandardError
       @store.audit('job_failed', run: job['run_id'])
       NotificationService.new(@config, @store).queue({ 'id' => job['run_id'] || job['id'] }, 'JOB_FAILED')
+      acknowledged = true
     ensure
-      @store.write('active_job', {})
+      @store.write('active_job', {}) if acknowledged
     end
 
     def recover_interrupted
@@ -199,7 +203,7 @@ module RedmineBackup
     def setup_health
       results = []
       %w[pg_dump pg_restore].each do |name|
-        path = @config['pg_bin'].empty? ? name : File.join(@config['pg_bin'], name)
+        path = PlatformService.executable(name, directory: @config['pg_bin'])
         begin
           ProcessRunner.new(timeout: 15).call([path, '--version'])
           results << { 'name' => "#{name} executable", 'ok' => true }
@@ -348,7 +352,7 @@ module RedmineBackup
       runs = @store.read('runs', [])
       Retention.local_candidates(runs, @config['local_keep_dates']).each do |run|
         path = @store.run_path(run['id'])
-        raise Error, 'UNSAFE_BACKUP_DIRECTORY' unless @store.inside?(path) && !File.symlink?(path)
+        raise Error, 'UNSAFE_BACKUP_DIRECTORY' unless @store.inside?(path) && !PlatformService.link?(path)
         FileUtils.remove_entry_secure(path) if File.directory?(path)
         run['local_deleted'] = true
         @store.audit('local_retention_deleted', run: run['id'])

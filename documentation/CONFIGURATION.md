@@ -2,6 +2,12 @@
 
 All routine settings are on **Administration → Backups**. Secret inputs are write-only: blank preserves the stored value within the same provider/application. Changing the provider, client ID or tenant requires matching application credentials; a blank field cannot inherit another application's secret. Non-secret settings use Redmine's plugin Setting entry. Credentials, refresh grants, upload sessions, audit and queue state are encrypted in a private filesystem directory using a key derived from the existing Rails secret.
 
+## Worker management and operating system
+
+The worker is started and supervised automatically by Redmine. No worker-service configuration is needed on this page or in the operating system. The dashboard reports both its heartbeat and whether it is Redmine-managed. Keep Redmine running for schedules and alerts; after an outage the durable queue and schedule catch-up recover using a fresh backup. The internal child flag is not a web-service setting.
+
+The default local directory remains a private subdirectory of Redmine's attachment storage. Windows validates native DACLs and uses `.exe` PostgreSQL client names; Linux/macOS use private POSIX modes. Configure PostgreSQL bin directory only when its tools are not on PATH, and list external deployment files under Additional Redmine paths. Do not use a public web-served directory for backup state.
+
 ## Retention
 
 | Field | Default | Meaning |

@@ -1,0 +1,28 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require_relative '../lib/redmine_backup'
+require_relative '../lib/redmine_backup/platform_service'
+require_relative '../lib/redmine_backup/worker_loop_service'
+
+begin
+  parent_argument = ARGV.find { |argument| argument.start_with?('--parent-pid=') }
+  raise RedmineBackup::Error, 'MANAGED_WORKER_ARGUMENTS_REQUIRED' unless ARGV.include?('--managed') && parent_argument
+  parent = Integer(parent_argument.delete_prefix('--parent-pid='))
+  raise RedmineBackup::Error, 'MANAGED_WORKER_PARENT_REQUIRED' unless parent.positive?
+  ENV['REDMINE_BACKUP_WORKER_CHILD'] = '1'
+  monitors = RedmineBackup::WorkerLoopService.monitor_parent(parent)
+  acquired = RedmineBackup::WorkerLoopService.with_manager_lock(Dir.pwd) do
+    require File.expand_path('config/environment', Dir.pwd)
+    RedmineBackup::WorkerLoopService.run(lock_held: true)
+  end
+  exit(75) unless acquired
+rescue RedmineBackup::WorkerStoppedException
+  exit(0)
+rescue StandardError
+  warn 'Redmine backup worker could not start; inspect private storage and application configuration.'
+  exit(1)
+ensure
+  Array(monitors).each { |thread| thread.kill; thread.join }
+end

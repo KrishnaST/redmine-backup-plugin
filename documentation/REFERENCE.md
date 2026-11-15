@@ -22,6 +22,7 @@ Operational primary references:
 - [AWS Ruby SDK](https://github.com/aws/aws-sdk-ruby), [S3 multipart uploads](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html), [S3 Object Lock](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html).
 - [R2 Ruby example](https://developers.cloudflare.com/r2/examples/aws/aws-sdk-ruby/), [B2 Ruby integration](https://www.backblaze.com/docs/cloud-storage-use-the-aws-sdk-for-ruby-with-backblaze-b2).
 - [Net::SFTP](https://github.com/net-ssh/net-sftp), [Rubyzip](https://github.com/rubyzip/rubyzip).
+- [Windows free space](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdiskfreespaceexw), [file security](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-setfilesecurityw), [process termination](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess), [Ruby subprocess lifecycle](https://ruby-doc.org/3.4/Process.html).
 - [Google Cloud Storage Ruby client](https://docs.cloud.google.com/ruby/docs/reference/google-cloud-storage/latest), [Graph SDK languages](https://learn.microsoft.com/en-us/graph/sdks/sdks-overview), [Dropbox community SDKs](https://docs.dropboxapi.com/dropbox-api/docs/sdks/community-sdks), [Box maintained SDKs](https://developer.box.com/guides/tooling/sdks/).
 
 Provider APIs and package versions change. Lock and test compatible dependencies in the actual Redmine installation; do not automatically upgrade the host application.

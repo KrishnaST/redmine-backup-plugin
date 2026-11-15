@@ -7,7 +7,8 @@ module RedmineBackup
       environment.each_pair do |key, value|
         paths << value if key.start_with?('REDMINE_') && key.end_with?('_FILE', '_DIRECTORY') && !value.to_s.empty?
       end
-      Dir.glob('/etc/systemd/system/*redmine*.service').reject { |path| File.basename(path).include?('gateway') }.each do |service|
+      services = PlatformService.linux? ? Dir.glob('/etc/systemd/system/*redmine*.service') : []
+      services.reject { |path| File.basename(path).include?('gateway') }.each do |service|
         paths << service
         File.foreach(service) do |line|
           next unless line.start_with?('EnvironmentFile=')

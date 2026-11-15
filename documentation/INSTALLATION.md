@@ -1,47 +1,43 @@
 # Installation
 
-Use a staging Redmine first. This repository does not deploy itself.
+Use a staging Redmine first. The [hosted guide](https://krishnast.github.io/redmine-backup-plugin/#installation) and offline `documentation/index.html` are generated from this repository.
 
-The [hosted reference](https://krishnast.github.io/redmine-backup-plugin/#installation) and offline `documentation/index.html` are generated from the same repository documentation. Keep all procedure changes here.
+1. Check Redmine 7.x, its supported Ruby/Rails version, PostgreSQL and compatible PostgreSQL client tools. Linux, Windows and macOS use the same plugin and configuration page. Preserve the working Redmine installation using your operational procedure.
+2. Clone into `REDMINE_ROOT/plugins/redmine_backup_plugin`. The repository basename may differ; the plugin registers its actual directory.
+3. As the Redmine account, run `bundle install` from the Redmine root. Review lockfile changes without upgrading unrelated gems. Windows additionally declares `fiddle` for native disk, process and ACL APIs; it adds no service or scheduler.
+4. No plugin table migrations are needed. Restart Redmine. Its supervisor automatically starts the Ruby worker under Puma or `rails server`; other Rack hosts activate it on the first request. No separate worker service, cron job, Redis, Sidekiq or Puma configuration changes are required.
+5. Open **Administration → Backups**. Choose a persistent, non-public local directory before creating the first backup. Its default is `redmine-backups` under attachment storage. The existing parent must be writable by the Redmine account.
+6. Configure destinations, retention and notification users/groups. If PostgreSQL tools are not on PATH, set PostgreSQL bin directory, such as `/usr/pgsql-18/bin` or `C:\Program Files\PostgreSQL\18\bin`. Windows `.exe` suffixes are selected automatically. Add external configuration paths not found through Redmine environment references. Linux service files are optional discovery sources when present, not a runtime dependency.
+7. Complete storage authorization using the displayed callback and **Save settings and connect storage account**. Installation does not authorize an account. See [provider authentication](AUTHENTICATION.md).
+8. Confirm **Background worker heartbeat**, **Worker managed by Redmine**, private storage and setup checks. Test notification and a manual backup; verify every required destination, checksum and cleanup status.
+9. Perform the isolated [restore drill](RECOVERY.md), then enable scheduling. Provider mocks and packaging tests alone do not validate another installation's restore procedure.
 
-1. Check Redmine 7.x, its Ruby/Rails versions, PostgreSQL, free space and the existing lockfile. Preserve the working Redmine installation using your existing operational procedure.
-2. Clone this repository into `REDMINE_ROOT/plugins/redmine_backup_plugin`. The repository basename may differ; the plugin explicitly registers its actual directory.
-3. As the Redmine service account, run `bundle install` from `REDMINE_ROOT`. Inspect the dependency changes; do not automatically upgrade unrelated Redmine gems. S3 and SFTP require their declared gems; ZIP and PostgreSQL must match Redmine's current lockfile.
-4. No plugin table migrations are needed. Restart the Redmine web service so the routes, menu and mailer are loaded.
-5. Open **Administration → Backups**. Choose the local directory before creating the first backup. It defaults to a private `redmine-backups` subdirectory of `Attachment.storage_path`. Its existing parent must be writable, persistent and non-public.
-6. Configure provider settings, retention and alert recipients. Add any external Redmine paths the discovery preview cannot identify. For Google Drive/OneDrive, register the exact displayed callback and use **Save settings and connect storage account**; follow [provider authentication](AUTHENTICATION.md). Installation alone does not authorize a storage account.
-7. Configure the native worker as a supervised process. Copy the template only after replacing its absolute paths/service user and adding the same environment files used by the web service. Do not run the worker as root.
-8. Confirm the heartbeat and path checks. Queue a test notification and a manual backup. Check capture, every required destination, integrity verification and cleanup status independently.
-9. Perform the documented isolated restore drill, then enable the schedule. The initial implementation is not production-validated merely because unit tests pass.
+## Redmine-managed worker
 
-## Worker systemd example
+The web process starts a dedicated Ruby child with the same account, Rails key and environment. The child elects one manager using a private lock under `REDMINE_ROOT/tmp/redmine-backup-manager` before loading Rails, so multiple web workers do not load multiple active backup engines. Backup work has its own database connections and does not occupy HTTP request threads. The process lock remains authoritative across restarts; it does not overtake a living backup.
 
-Example install commands (replace paths, service names and account for the actual host):
+The supervisor restarts a failed child. Redmine shutdown closes the child's control pipe; the child also watches its parent's liveness. Interrupted work keeps durable job state and is recovered as a fresh backup when Redmine returns. A dead Redmine/server cannot run backups or send immediate alerts.
 
-```sh
-cd /path/to/redmine/plugins
-git clone https://github.com/KrishnaST/redmine-backup-plugin.git redmine_backup_plugin
-cd /path/to/redmine
-bundle install
-sudo systemctl restart redmine.service
-```
+No background work starts from test environments, console/runner commands or the managed child itself. A custom Rack host first activates management through its first request; use a normal readiness request when booting such a host. Subsequent scheduling runs without web traffic.
 
-Copy `plugins/redmine_backup_plugin/templates/redmine-backup-worker.service` to `/etc/systemd/system/redmine-backup-worker.service`, edit it as described below, then run the service commands. The worker must share the web service's Rails key, environment and account; a clone and web restart alone do not start scheduled backups.
+## Upgrade from version 0.3.x
 
-Edit `templates/redmine-backup-worker.service` for the actual service account, Redmine root and absolute Bundler executable. Include the environment/secret inputs required by Redmine and its SMTP delivery plugin. OS service configuration is installation infrastructure; daily operation and backup policy are administered in Redmine.
+Remove the obsolete dedicated backup-worker service/job after validating the managed worker. On a Linux installation previously using the old template, stop/disable that backup service before restarting Redmine with the new plugin. Validate the managed heartbeat and a full upload before removing its obsolete unit file. This is a one-time removal of old infrastructure, not a new installation dependency. Keep the Redmine application's normal hosting arrangement.
 
-```sh
-sudo systemctl daemon-reload
-sudo systemctl enable --now redmine-backup-worker.service
-sudo systemctl status redmine-backup-worker.service
-```
+## Private storage and platform details
 
-The worker evaluates the schedule every 15 seconds and writes a heartbeat during long operations. It uses a filesystem process lock, not a lease that lets a second writer overtake a still-running job. A crashed process releases the kernel lock; durable job state guides recovery. A hung process requires supervisor/operator intervention.
+Linux/macOS use owner-only POSIX modes and built-in `df -Pk` for disk reserve checks. Windows uses native free-space APIs and protected NTFS DACLs allowing the Redmine account, SYSTEM and local administrators. New control/payload files inherit those private ACLs. DOS chmod bits are not accepted as ACL verification. Existing external credential files must also have restricted permissions; the plugin validates but does not rewrite their ACLs.
+
+Application/storage paths with spaces and Unicode are supported. State/coordination directories cannot be symlinks or Windows reparse points. A source junction/reparse point requires reviewed explicit coverage of a regular target rather than implicit traversal. Use a reliable local filesystem for process locks; no distributed multi-host lock is claimed.
+
+## Manual diagnostics
+
+The application manages the worker. For operator diagnostics, `bundle exec rake redmine_backup:tick` attempts one locked cycle and `bundle exec rake redmine_backup:worker` runs a foreground loop from the Redmine root. Both obey the same manager lock; they do not start a second active worker. Set `RAILS_ENV=production` in that shell as appropriate for its OS. These commands do not need an OS service or schedule.
 
 ## Local directory migration
 
-The directory is editable through the UI before there are queued jobs or backup records. Existing data is not moved automatically. For an existing installation, pause scheduling, stop the worker and web writes, copy the entire private directory preserving ownership/modes to the reviewed destination, update the plugin's non-secret `local_directory` setting through a controlled Rails maintenance session, then restart and validate history/keys/paths. Keep the original until validation succeeds. Do not point a new empty state directory at an existing remote namespace.
+Before history exists, the local directory can be selected in the UI. For an established installation, pause scheduling and stop Redmine, copy the complete private state directory preserving its keys and appropriate destination-platform permissions, update the non-secret local directory through an authorized maintenance session, then restart and validate. State is not automatically moved. Keep the original until verification succeeds; never initialize an empty state directory against an existing remote namespace.
 
 ## Uninstall
 
-Pause scheduling, stop/disable the backup worker and remove the plugin directory using the normal Redmine maintenance procedure. Preserve the private backup state, recovery keys and remote backups deliberately; uninstall does not automatically delete them. No database tables are dropped. The Redmine plugin settings entry can be removed through an explicitly authorized maintenance action if desired.
+Pause scheduling, stop Redmine and remove the plugin through normal maintenance. Its managed child stops with the app. Preserve backup state, recovery keys and remote data deliberately. No database tables or stored backups are automatically deleted.

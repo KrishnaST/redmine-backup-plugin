@@ -16,7 +16,7 @@
 - [Current global instructions](Codex-Global-AGENTS.md)
 - [Source checker](../tools/check_sources.rb) and [standalone verifier](../bin/redmine-backup-verify)
 - [Offline bootstrap restoration helper](../bin/redmine-backup-bootstrap)
-- [Worker service template](../templates/redmine-backup-worker.service)
+- [Managed Ruby worker launcher](../bin/redmine-backup-worker) and [portable supervisor](../lib/redmine_backup/worker_supervisor_service.rb)
 - [Offline documentation generator](../tools/build_documentation.rb)
 
 This folder is the canonical documentation for the native Ruby implementation. Live deployment records and credentials stay private to the installed instance. Provider authorization, backup scheduling and restore-drill results are independent of source publication.

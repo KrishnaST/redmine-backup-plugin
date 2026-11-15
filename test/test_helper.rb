@@ -15,6 +15,7 @@ class BackupTest < Minitest::Test
     @temporary_parent = File.expand_path('../tmp/test', __dir__)
     FileUtils.mkdir_p(@temporary_parent)
     @temporary = Dir.mktmpdir('backup-', @temporary_parent)
+    RedmineBackup::PlatformService.secure_directory!(@temporary)
   end
 
   def teardown

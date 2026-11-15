@@ -6,6 +6,7 @@
 <% end %>
 <h2>Redmine backups</h2>
 <p>Full database and file backups. Gateway excluded. Configuration is restricted to administrators.</p>
+<p class="backup-hint">Redmine automatically starts and supervises the backup worker. No separate worker service or OS scheduler is required.</p>
 <% if @recovery %>
   <div class="flash warning">Recovery Mode: scheduling, uploads, cleanup and operational mail are stopped.</div>
   <%= button_to 'Activate this restored instance (leave schedule paused)', redmine_backup_activate_path, method: :post, data: { confirm: 'Confirm the old host is fenced and review the restored destinations before enabling scheduling.' } %>

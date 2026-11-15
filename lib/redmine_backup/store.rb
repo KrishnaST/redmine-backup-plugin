@@ -10,9 +10,9 @@ module RedmineBackup
     def initialize(root, encryptor: nil)
       @root = File.expand_path(root)
       @encryptor = encryptor
-      raise Error, 'SYMLINK_STATE_DIRECTORY' if File.symlink?(@root)
+      raise Error, 'SYMLINK_STATE_DIRECTORY' if PlatformService.link?(@root)
       FileUtils.mkdir_p(@root, mode: 0o700)
-      File.chmod(0o700, @root)
+      PlatformService.secure_directory!(@root)
       %w[control runs].each { |name| FileUtils.mkdir_p(File.join(@root, name), mode: 0o700) }
     end
 
@@ -65,7 +65,7 @@ module RedmineBackup
     end
 
     def inside?(path)
-      File.expand_path(path).start_with?(root + File::SEPARATOR)
+      PlatformService.within?(path, root)
     end
 
     def audit(event, actor: 'worker', run: nil)

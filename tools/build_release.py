@@ -12,6 +12,8 @@ def main():
     root = pathlib.Path(__file__).resolve().parent.parent
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     paths = ["app", "assets", "bin", "config", "documentation", "lib", "templates", "Gemfile", "init.rb", "README.md", "LICENSE"]
+    tracked = subprocess.check_output(["git", "ls-tree", "--name-only", revision], cwd=root, text=True).splitlines()
+    paths = [path for path in paths if path in tracked]
     archive = subprocess.check_output(["git", "archive", "--format=tar", revision, *paths], cwd=root)
     destination = root / "tmp" / "deployment" / "redmine-backup-plugin.tar.gz"
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -21,7 +23,7 @@ def main():
             for member in source.getmembers():
                 content = source.extractfile(member) if member.isfile() else None
                 output.addfile(member, content)
-                if member.isfile() and (member.name.startswith(("app/", "assets/", "config/", "lib/")) or member.name == "init.rb"):
+                if member.isfile() and (member.name.startswith(("app/", "assets/", "bin/", "config/", "lib/")) or member.name == "init.rb"):
                     manifest[member.name] = hashlib.sha256(source.extractfile(member).read()).hexdigest()
             payload = (revision + "\n").encode()
             entry = tarfile.TarInfo("REVISION")

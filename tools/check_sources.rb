@@ -6,7 +6,8 @@ require 'yaml'
 
 root = File.expand_path('..', __dir__)
 errors = []
-Dir.glob(File.join(root, '{app,lib,config,test,tools}', '**', '*.rb')).reject { |path| path.include?('/tools/runtime/') }.sort.each do |path|
+files = Dir.glob(File.join(root, '{app,lib,config,test,tools}', '**', '*.rb')) + Dir.glob(File.join(root, 'bin', '*')).select { |path| File.file?(path) }
+files.reject { |path| path.include?('/tools/runtime/') }.sort.each do |path|
   errors << "Ruby syntax: #{path.delete_prefix(root + '/')}" unless Ripper.sexp(File.read(path))
 end
 Dir.glob(File.join(root, '.github', '**', '*.yml')).each do |path|

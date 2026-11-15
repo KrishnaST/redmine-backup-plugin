@@ -9,7 +9,7 @@ module RedmineBackup
     attr_reader :store, :config
 
     def self.host_identity
-      machine = File.read('/etc/machine-id').strip if File.file?('/etc/machine-id')
+      machine = PlatformService.machine_identity
       Digest::SHA256.hexdigest([Socket.gethostname, machine, Rails.root.to_s].join('|'))
     end
 
@@ -24,7 +24,7 @@ module RedmineBackup
       parent = File.realpath(File.dirname(File.expand_path(root)))
       root = File.join(parent, File.basename(root))
       public_root = File.join(File.realpath(Rails.root), 'public')
-      raise Error, 'PUBLIC_BACKUP_DIRECTORY' if root == public_root || root.start_with?(public_root + '/')
+      raise Error, 'PUBLIC_BACKUP_DIRECTORY' if PlatformService.within?(root, public_root, include_root: true)
       raise Error, 'WRITABLE_PARENT_REQUIRED' unless File.writable?(parent)
       key = ActiveSupport::KeyGenerator.new(Rails.application.secret_key_base).generate_key('redmine-backup-v1', 32)
       @encryptor = ActiveSupport::MessageEncryptor.new(key, cipher: 'aes-256-gcm', serializer: JSON)
@@ -56,7 +56,7 @@ module RedmineBackup
           parent = File.realpath(File.dirname(desired))
           desired = File.join(parent, File.basename(desired))
           public_root = File.join(File.realpath(Rails.root), 'public')
-          raise Error, 'PUBLIC_BACKUP_DIRECTORY' if desired == public_root || desired.start_with?(public_root + '/')
+          raise Error, 'PUBLIC_BACKUP_DIRECTORY' if PlatformService.within?(desired, public_root, include_root: true)
           raise Error, 'WRITABLE_PARENT_REQUIRED' unless File.writable?(parent)
           raise Error, 'DESTINATION_MUST_BE_EMPTY' if File.exist?(desired) && !Dir.empty?(desired)
           metadata = store.read('metadata')
@@ -120,9 +120,10 @@ module RedmineBackup
 
     def health
       checks = []
-      checks << { 'name' => 'Private local storage', 'ok' => (File.stat(store.root).mode & 0o077).zero? }
+      checks << { 'name' => 'Private local storage', 'ok' => PlatformService.private_path?(store.root) }
       heartbeat = store.read('heartbeat')['at']
       checks << { 'name' => 'Background worker heartbeat', 'ok' => heartbeat && Time.iso8601(heartbeat) > Time.now - 120 }
+      checks << { 'name' => 'Worker managed by Redmine', 'ok' => store.read('heartbeat')['management'] == 'redmine' }
       checks << { 'name' => 'Recovery activation', 'ok' => !recovery? }
       configuration = ActiveRecord::Base.connection_db_config.configuration_hash
       checks << { 'name' => 'PostgreSQL adapter', 'ok' => configuration[:adapter] == 'postgresql' }

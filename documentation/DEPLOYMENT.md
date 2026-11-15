@@ -1,13 +1,13 @@
 # Deployment and release operations
 
-This plugin runs inside Redmine; its background worker is a separate native Ruby process. Configuration, credentials and backup payloads belong to the installed instance and are never checked into the public source repository.
+Redmine automatically supervises the plugin's dedicated Ruby worker. No separate backup service or OS scheduler is installed. Configuration, credentials and backup payloads belong to the installed instance and are never checked into the public source repository.
 
 ## Installation sequence
 
 1. Inspect the current Redmine/Ruby/PostgreSQL versions, service account, environment-file paths, attachment root and existing dependency lockfile. The reusable `tools/deployment_preflight.rb` performs database diagnostics in an explicit read-only transaction.
 2. Package only source-controlled runtime, documentation and template files. Exclude `.git`, `target`, local runtimes, dependency caches, temporary captures and operator records. Keep a short-lived rollback copy of the existing Gemfile.lock until installation verification succeeds.
 3. Install into `REDMINE_ROOT/plugins/redmine_backup_plugin` as the Redmine service account. Run `bundle install` using the current Redmine environment. Compare the lockfile and avoid unrelated dependency upgrades. There are no plugin table migrations.
-4. Install the reviewed worker unit with the same service account, working directory, Ruby/Bundler and environment inputs as Redmine. Give the discovered local store private permissions. Restart Redmine and start the worker.
+4. For upgrades from 0.3.x, stop the obsolete standalone backup worker before replacing code. Restart Redmine; it starts its managed child with the same account, environment and key. Validate private POSIX permissions or Windows ACLs, managed heartbeat, process exclusion and recovery. Remove the old worker service/job after a verified backup. No Puma configuration additions are needed.
 5. Verify the plugin registry, routes, public login response, administrator page, worker heartbeat, private control files, queue and setup checks. Existing SMTP functionality and the gateway remain outside the deployment change.
 6. Initial storage is unconnected and backup scheduling is disabled. Select a destination, complete its authorization, choose recipients/retention, run the health check and validate a manual backup before enabling daily scheduling. No operational test email or cloud upload is sent just by loading the plugin.
 
@@ -15,7 +15,7 @@ The [recovery worksheet](RECOVERY-WORKSHEET.md) is a private template for the ac
 
 ## Rollback
 
-If boot/dependency verification fails, stop the backup worker, remove only the newly installed plugin directory, restore the saved lockfile and restart Redmine with its original dependencies. Preserve any actual captured backup/control data separately. Do not drop Redmine tables or remove existing plugins. Remove the short-lived rollback lockfile and source upload after a verified installation.
+If boot/dependency verification fails, stop Redmine so its managed worker exits, remove only the new plugin source, restore the saved source/lockfile and restart with the original dependencies and worker arrangement. Preserve captured backup/control data. Do not drop Redmine tables or remove other plugins. Remove temporary rollback source after verification.
 
 ## Maintainer tooling
 

@@ -9,11 +9,12 @@ Current native plugin version: 0.3.1. This describes source implementation, not 
 | Authentication | Provider/method-specific inputs; Google user OAuth/service accounts/Workspace delegation; Microsoft browser/device/app secret/certificate/workload/managed/OBO/legacy ROPC; imported grants; S3 SDK chain/static/STS; SFTP key/password |
 | Database configuration | Reads Redmine's resolved ActiveRecord primary configuration; no duplicate editable credentials |
 | Full daily database/files | Exported PostgreSQL read-only snapshot, custom dump, full application archive and snapshot-referenced attachments |
-| Discovery/coverage | Application and attachment roots, configured Redmine file/directory environment references, readable Redmine systemd units/environment files and additional paths; changes highlighted |
+| Discovery/coverage | Application/attachment roots and Redmine file/directory environment references on every OS; optional existing Linux unit/environment files; configured additional paths and coverage-change reporting |
 | Local storage | Private subdirectory of attachment storage by default; editable at first setup, controlled migration for existing history |
 | Retention | Configurable local/default remote/per-target override; 1–3650 distinct successful dates; defaults 3/10 |
 | Safe cleanup | Protected pending copies, ownership/reference checks, per-target history, last good copy, lock deferral |
-| Scheduling and catch-up | Supervised native Ruby worker, persistent queue, latest missed slot, explicit pause; Redmine settings cache refreshed before every runtime load |
+| Scheduling and catch-up | Redmine-supervised Ruby child, one manager elected before Rails loads, persistent queue, latest missed slot, explicit pause; settings cache refreshed on every runtime load |
+| Platforms | Linux/macOS POSIX operations and native Windows disk/process/ACL adapters; executable suffixes and path containment adapted per OS |
 | One-run lock | Kernel process lock, heartbeat and interrupted-job reconciliation |
 | Packaging | One owned remote folder per run, or a named ZIP64 with one top-level backup folder; component/wrapper integrity checks |
 | Missed upload recovery | Fresh full capture with current configuration and a new run ID; old queued retries converted; historical copies unchanged |
@@ -29,11 +30,11 @@ Current native plugin version: 0.3.1. This describes source implementation, not 
 
 ## Deliberate initial boundaries
 
-- PostgreSQL and Linux are the supported capture environment. Unit tests can run on Windows; a Windows production worker is not supported.
+- PostgreSQL remains the supported database engine. Linux, Windows and macOS platform paths are implemented; acceptance still requires compatible PostgreSQL clients, private local storage and a full restore drill on the actual installation. Windows ACLs are provisioned/checked through native APIs. Source POSIX modes do not recreate Windows ACL policies during an OS migration; provision target permissions deliberately.
 - Additional Ruby-capable providers are cataloged, not implemented adapters. Shared Drive and SharePoint authorization require actual tenant/account permissions and live compatibility tests. Google limited-input device flow and native-app callbacks are not applicable to this web plugin; legacy browser access tokens are supported through explicit expiring-token import.
 - No public download or automatic production-restore endpoint. Restoration remains an administrator-controlled offline process. The helper reconstructs control state and emits reviewed non-secret settings for an explicit Rails maintenance import.
 - Previously captured full backup directories are excluded from each new full backup. Bootstrap preserves their history as historical/unavailable when restored; it does not pretend their old local payloads exist.
-- Native alerts cannot report immediately while Redmine/worker/server is down. Recovery confirmations and scheduled daily-success emails are optional/off by default. Manually pinned recovery points remain a future enhancement.
+- Native alerts cannot report while Redmine/server is down. The managed worker follows the application lifecycle and recovers durable work; recovery confirmations and scheduled success mail remain optional/off by default. Custom Rack hosts activate supervision on the first readiness/request; Puma and rails-server startup are recognized automatically.
 - Locked cleanup, duplicate markers, orphaned partial uploads and provider old versions may exceed retention counts. No blind remote orphan sweeping or forced hold removal occurs.
 - A started `pg_dump` is terminated on timeout/disk-check failure. Cloud requests have bounded per-request timeouts/retries. No global hard upload-duration limit is imposed across a large multipart upload; supervisor cancellation leaves resumable state.
 - Filesystem control locks require a reliable shared local filesystem. No multi-host distributed locking or unsafe hung-worker takeover is claimed.

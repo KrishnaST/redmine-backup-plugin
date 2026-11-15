@@ -1,6 +1,6 @@
 # Redmine Backup
 
-Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.3.3 uploads each backup into its own folder, or one named ZIP containing that folder directly in the destination root. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
+Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Version 0.4.0 supports Linux, Windows and macOS platform operations and lets Redmine automatically supervise its worker. No separate backup service, OS scheduler, Redis or Sidekiq is required. A chosen-provider upload and full restore drill remain installation acceptance checks.
 
 ## Features
 
@@ -25,18 +25,15 @@ See the [hosted installation and configuration guide](https://krishnast.github.i
 
 Clone into `REDMINE_ROOT/plugins/redmine_backup_plugin`, run `bundle install` from the Redmine root after reviewing dependency resolution, restart Redmine, then configure **Administration → Backups**. No plugin schema migrations are needed: Redmine stores the non-secret plugin settings and this plugin uses private encrypted filesystem state for queue, credentials and history.
 
-The app and a separately supervised worker must run as the same service account with the same Rails key and local state directory. Start the worker from the Redmine root:
+Redmine starts and monitors a dedicated Ruby child process with its own application/database connections, using the same account, environment and Rails key. The supervisor performs no database work in a preloaded web-server master. A private OS process lock elects one worker before Rails loads, including clustered/preloaded web servers. A failed child is restarted; shutdown closes its control pipe, interrupts active work and stops dump subprocesses. The durable queue recovers interrupted work with a fresh backup. Web requests perform no backup I/O.
 
-```sh
-RAILS_ENV=production bundle exec rake redmine_backup:worker
-```
-
-An example [systemd unit](templates/redmine-backup-worker.service) supervises the native worker. It is not installed automatically. The plugin does not spawn scheduler threads in web workers and does not require an external cron schedule.
+Startup is automatic for Puma and `rails server`; other Rack hosts activate management on the first request. The worker lives while Redmine lives. No web request is required for subsequent schedule evaluation. Existing OS services may host Redmine itself, but the plugin never invokes a service manager. Remove obsolete version 0.3.x backup-worker services after validating the managed heartbeat; see [installation](documentation/INSTALLATION.md).
 
 ## Requirements
 
-- Linux, Redmine 7.x, its supported Ruby/Rails versions, and PostgreSQL as Redmine's primary database.
-- Compatible `pg_dump` / `pg_restore`; the database identity must be able to read every Redmine table and export a snapshot. The OS `df` utility is used for disk reserve checks. `pg_dump` receives credentials via its process environment, never password arguments.
+- Linux, Windows or macOS; Redmine 7.x, its supported Ruby/Rails versions, and PostgreSQL as Redmine's primary database.
+- Compatible `pg_dump` / `pg_restore`; configure their bin directory when not on PATH. Windows uses `.exe` names automatically. Credentials go through the process environment, never password arguments.
+- Windows: NTFS-compatible private ACLs and the Windows-only `fiddle` Ruby binding. Identity, free space, process termination and ACLs use native Win32 APIs; chmod bits are not treated as ACL proof. Linux/macOS use POSIX permissions and their built-in `df -Pk` utility. No PowerShell backup script or additional daemon is needed.
 - Gems: `pg`, `rubyzip` 3.x, `aws-sdk-s3` 1.x and `net-sftp` 4.x. The first two are normally supplied by PostgreSQL-backed Redmine; Bundler must verify the actual installed lockfile. HTTPS/OAuth use Ruby Net::HTTP and OpenSSL.
 - Writable private persistent local storage. An OS-managed worker, working outbound HTTPS/SSH and the existing Redmine email mechanism are operational dependencies.
 - Read access to required external configuration/state. The plugin cannot elevate OS permissions or back up unreadable service-account secrets.
@@ -60,6 +57,8 @@ All endpoints require a Redmine administrator; state-changing requests use Redmi
 ## Environment variables
 
 `RAILS_ENV=production` selects the existing Redmine environment. `REDMINE_BACKUP_RECOVERY=1` forces Recovery Mode and must be removed explicitly before activation can take effect. No storage/database password environment variables are required by this plugin: provider secrets are entered on its admin page and stored encrypted outside the database. Existing Redmine authentication/IAM-role environments continue to work through the selected SDK.
+
+`REDMINE_BACKUP_WORKER_CHILD=1` is an internal flag set only on the managed Ruby child to prevent recursive supervisor creation; do not set it on the web service. The supervisor sets `BUNDLE_GEMFILE` to the current Redmine Gemfile. Manager coordination files live under `REDMINE_ROOT/tmp/redmine-backup-manager`, separate from backup contents and excluded from capture.
 
 Azure managed identity uses platform-provided `IDENTITY_ENDPOINT` / `IDENTITY_HEADER` on Azure App Service or the fixed Azure VM IMDS endpoint; these must be available to web and worker services. Workload federation and On-Behalf-Of require private externally rotated assertion files; the plugin does not issue upstream identities. No new production gems are required for these methods.
 

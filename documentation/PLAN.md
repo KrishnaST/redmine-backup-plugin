@@ -16,7 +16,7 @@ This is the current scope of the native Ruby implementation. Installation/config
 | Packaging | Separate components or a single ZIP/ZIP64; no 7z |
 | Encryption | No additional archive encryption; private control credentials remain encrypted |
 | Bandwidth | No plugin throttle; provider-directed retry/backoff still applies |
-| Management | Redmine administrator UI and a supervised native Ruby worker |
+| Management | Redmine administrator UI with an automatically supervised Ruby child; no separate service/scheduler |
 | Database credentials | Derived from Redmine's resolved primary configuration |
 | Alerts | Existing Redmine mail delivery; selected existing users/groups |
 | Gateway | Excluded |
@@ -31,7 +31,7 @@ A manifest records runtime versions, source/archive mappings, captured files, ar
 
 ## Scheduling and execution
 
-The native worker evaluates a durable schedule/queue. A missed schedule after an outage triggers one fresh current backup once the app/database/worker are ready. It does not invent historical recovery points for every missed day. Explicit Pause is respected; manually requested work does not suppress the next scheduled slot.
+Redmine starts, monitors and stops its Ruby child, which evaluates the durable schedule/queue. A private manager lock is acquired before Rails loads; a second web process does not load a second active engine. Parent shutdown interrupts child work and terminates active dump subprocesses. A missed schedule after an outage triggers a fresh current backup once the app/database/worker are ready. Explicit Pause is respected; manual work does not suppress the next scheduled slot.
 
 A process lock prevents concurrent writers across startup hooks/workers/admin clicks. Heartbeats show liveness; durable state identifies interrupted work. Interrupted capture/upload recovery starts a fresh full capture with current configuration, sharing an already queued current backup where available. A still-running hung process is not automatically overtaken by another writer.
 

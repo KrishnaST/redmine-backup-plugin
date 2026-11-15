@@ -18,7 +18,7 @@ ActiveRecord::Base.connection_pool.with_connection do |connection|
       local_keep_dates: runtime.config['local_keep_dates'],
       remote_keep_dates: runtime.config['remote_keep_dates'],
       configured_alert_recipients: runtime.config['user_ids'].length + runtime.config['group_ids'].length,
-      local_store_private: (File.stat(runtime.store.root).mode & 0o077).zero?,
+      local_store_private: RedmineBackup::PlatformService.private_path?(runtime.store.root),
       heartbeat_healthy: true,
       health: results,
       backup_records: runtime.store.read('runs', []).length

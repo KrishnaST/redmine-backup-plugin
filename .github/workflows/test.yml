@@ -6,10 +6,15 @@ permissions:
     contents: read
 jobs:
     unit:
-        runs-on: ubuntu-latest
+        runs-on: ${{ matrix.os }}
         strategy:
             matrix:
-                ruby: ['3.3', '3.4', '4.0']
+                include:
+                    - {os: ubuntu-latest, ruby: '3.3'}
+                    - {os: ubuntu-latest, ruby: '3.4'}
+                    - {os: ubuntu-latest, ruby: '4.0'}
+                    - {os: windows-latest, ruby: '4.0'}
+                    - {os: macos-latest, ruby: '4.0'}
         steps:
             -
                 uses: actions/checkout@v7

@@ -2,6 +2,9 @@
 
 require_relative 'lib/redmine_backup'
 require_relative 'lib/redmine_backup/homepage_hook'
+require_relative 'lib/redmine_backup/platform_service'
+require_relative 'lib/redmine_backup/worker_supervisor_service'
+require_relative 'lib/redmine_backup/worker_lifecycle_middleware'
 
 Redmine::Plugin.register :redmine_backup_plugin do
   directory File.expand_path(__dir__)
@@ -17,3 +20,12 @@ Redmine::Plugin.register :redmine_backup_plugin do
 end
 
 Rails.application.config.filter_parameters += %i[backup client_secret access_token refresh_token password private_key key_passphrase secret_access_key session_token service_account_json certificate_pem device_code user_code assertion client_assertion code state]
+
+Rails.application.config.middleware.use RedmineBackup::WorkerLifecycleMiddleware
+Rails.application.config.after_initialize do
+  if RedmineBackup::WorkerSupervisorService.web_process?
+    RedmineBackup::WorkerSupervisorService.start_for_application(Rails.root)
+  end
+rescue StandardError
+  Rails.logger.error('Redmine backup supervisor unavailable; inspect backup health')
+end
