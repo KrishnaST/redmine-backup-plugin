@@ -12,5 +12,6 @@ if File.expand_path(Bundler.default_gemfile) == File.expand_path(__FILE__)
     gem 'minitest', '~> 5.25' unless dependencies.any? { |dependency| dependency.name == 'minitest' }
     gem 'rake', '~> 13.2' unless dependencies.any? { |dependency| dependency.name == 'rake' }
     gem 'rdoc', '>= 6.6', '< 8' unless dependencies.any? { |dependency| dependency.name == 'rdoc' }
+    gem 'tzinfo-data', '~> 1' if Gem.win_platform? && !dependencies.any? { |dependency| dependency.name == 'tzinfo-data' }
   end
 end
