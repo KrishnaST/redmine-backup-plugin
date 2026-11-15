@@ -53,6 +53,17 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     assert_empty runtime.store.read('queue', []).reject { |job| job['kind'] == 'health_check' }
   end
 
+  def test_first_controller_request_activates_supervision_after_redmine_loads_plugins
+    assert_includes ApplicationController.included_modules, RedmineBackup::WorkerLifecycleController
+    requests = []
+    RedmineBackup::WorkerSupervisorService.stub(:start_for_application, ->(root) { requests << root.to_s }) do
+      host! 'redmine.example.test'
+      get '/login'
+      assert_response :success
+    end
+    assert_equal [Rails.root.to_s], requests
+  end
+
   def sign_in
     host! 'redmine.example.test'
     https!
