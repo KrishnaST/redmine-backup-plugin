@@ -468,6 +468,8 @@ sudo systemctl status redmine-backup-worker.service</pre>
 </li><li>
 <p>Missing refresh grant: reconnect with offline consent using a matching client type.</p>
 </li><li>
+<p>Google folder returns <code>PROVIDER_HTTP_404</code>: the folder ID is wrong, deleted, or inaccessible to this application. Successful account consent alone does not grant access to an arbitrary folder under <code>drive.file</code>. Use the application-created Redmine Backups folder; alternatively clear the folder field and reconnect to create one. Do not broaden permissions or silently switch the destination for historical upload retries. After correcting settings, run Check setup and validate a new backup.</p>
+</li><li>
 <p>Device flow pending: finish Microsoft sign-in and wait for the displayed polling interval; expired/denied codes require a new flow.</p>
 </li><li>
 <p>Shared Drive quota/folder errors: use a team-owned folder for a service account, or delegate to an authorized Workspace user.</p>
@@ -1062,7 +1064,11 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 
 <p>Version 0.3.0 adds Redmine controller/view integration cases for private device authorization and new credential fields. A disposable native Redmine/PostgreSQL test environment is not available on the maintainer workstation; these cases run in the repository CI workflow. Verify its result for the exact deployed commit, then run the installed-instance checks. The prior version’s successful integration/installed-instance results are historical evidence rather than proof of a newer deployment.</p>
 
-<p>No real Google/Microsoft account was authorized and no live cloud upload or full restore drill was performed in this implementation. Provider consent, app permissions, credential rotation and actual tenant/library compatibility remain installation validation. Scheduling/recipient settings on an existing installation must be preserved; disabled scheduling and optional secondary are initial defaults, not a claim about an administrator’s current settings.</p>
+<p>Version 0.3.1 installed-instance validation on 15 November 2026 confirmed Google browser OAuth, a full PostgreSQL/application capture, upload of all five separate components to the application-accessible Google Drive folder, remote byte-count/SHA-256 verification, a verified completion marker and successful remote retention inspection. The authenticated administrator page showed a complete run, Verified primary destination and all setup checks OK. The worker settings-cache fix passed 139 unit tests / 537 assertions across Ruby 3.3, 3.4 and 4.0, plus 16 native Redmine/PostgreSQL integration tests / 95 assertions. Existing dependencies and the configured schedule, notification audience and optional-secondary policy were preserved.</p>
+
+<p>The installation initially referenced an inaccessible Google folder: account-level authentication succeeded while folder metadata returned HTTP 404. Correcting the reference to the existing application-created folder resolved the live upload failure. Historical failed runs retain their original destination and audit evidence; the successful validation used a new capture. This is installed-instance evidence, not a guarantee for another account or provider.</p>
+
+<p>No full restore drill or live Microsoft storage upload was performed. Provider consent, app permissions, credential rotation and actual tenant/library compatibility remain installation validation. Scheduling/recipient settings on an existing installation must be preserved; disabled scheduling and optional secondary are initial defaults, not a claim about an administrator’s current settings.</p>
 </section>
 <section id="reference" aria-label="References"><span id="reference-top"></span>
 <h1 id="reference-label-Authentic+source+and+API+references"><a href="#reference-label-Authentic+source+and+API+references">Authentic source and API references</a></h1>
