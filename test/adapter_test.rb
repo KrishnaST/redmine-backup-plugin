@@ -104,4 +104,57 @@ class AdapterTest < BackupTest
     assert_raises(RedmineBackup::Error) { provider.health! }
     refute client.api_requests.any? { |request| request[:operation_name].to_s.start_with?('put_bucket') }
   end
+
+  def test_s3_authentication_uses_only_selected_credential_method
+    %w[sdk_chain access_key session_token].each do |method|
+      captured = nil
+      factory = ->(**options) { captured = options; Object.new }
+      Aws::S3::Client.stub(:new, factory) do
+        RedmineBackup::Providers::S3.new({ 'provider' => 's3', 'auth_method' => method, 'bucket' => 'test',
+                                         'access_key_id' => 'key', 'secret_access_key' => 'secret', 'session_token' => 'session' })
+      end
+      if method == 'sdk_chain'
+        refute captured.key?(:credentials)
+      else
+        assert_equal 'key', captured[:credentials].access_key_id
+        if method == 'session_token'
+          assert_equal 'session', captured[:credentials].session_token
+        else
+          assert_nil captured[:credentials].session_token
+        end
+      end
+    end
+  end
+
+  def test_s3_temporary_method_requires_all_three_credentials
+    assert_raises(RedmineBackup::Error) do
+      RedmineBackup::Providers::S3.new({ 'provider' => 's3', 'auth_method' => 'session_token', 'bucket' => 'test',
+                                       'access_key_id' => 'key', 'secret_access_key' => 'secret' })
+    end
+  end
+
+  def test_sftp_selects_password_or_private_key_without_falling_back_to_agent
+    require 'net/sftp'
+    %w[ssh_key password].each do |method|
+      captured = nil
+      factory = ->(_host, _username, **options) { captured = options; Object.new }
+      Net::SFTP.stub(:start, factory) do
+        RedmineBackup::Providers::Sftp.new({ 'provider' => 'sftp', 'auth_method' => method, 'host' => 'test.invalid',
+                                           'username' => 'backup', 'directory' => '/backups', 'known_hosts' => '/private/known_hosts',
+                                           'private_key_path' => '/private/key', 'key_passphrase' => 'phrase', 'password' => 'password' })
+      end
+      assert_equal :always, captured[:verify_host_key]
+      if method == 'ssh_key'
+        assert_equal ['publickey'], captured[:auth_methods]
+        assert_equal 'phrase', captured[:passphrase]
+        assert_equal false, captured[:use_agent]
+        refute captured.key?(:password)
+      else
+        assert_equal ['password'], captured[:auth_methods]
+        assert_equal 'password', captured[:password]
+        refute captured.key?(:keys)
+        refute captured.key?(:passphrase)
+      end
+    end
+  end
 end
