@@ -11,6 +11,7 @@ ActiveRecord::Base.connection_pool.with_connection do |connection|
     results = runtime.health
     raise 'Unexpected recovery mode' if runtime.recovery?
     raise 'Worker heartbeat missing' unless results.any? { |result| result['name'] == 'Background worker heartbeat' && result['ok'] }
+    raise 'Worker is not managed by Redmine' unless results.any? { |result| result['name'] == 'Worker managed by Redmine' && result['ok'] }
     puts JSON.pretty_generate(
       plugin_version: RedmineBackup::VERSION,
       schedule_enabled: runtime.config['enabled'],

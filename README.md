@@ -35,7 +35,7 @@ Startup is automatic for Puma and `rails server`; other Rack hosts activate mana
 - Compatible `pg_dump` / `pg_restore`; configure their bin directory when not on PATH. Windows uses `.exe` names automatically. Credentials go through the process environment, never password arguments.
 - Windows: NTFS-compatible private ACLs and the Windows-only `fiddle` Ruby binding. Identity, free space, process termination and ACLs use native Win32 APIs; chmod bits are not treated as ACL proof. Linux/macOS use POSIX permissions and their built-in `df -Pk` utility. No PowerShell backup script or additional daemon is needed.
 - Gems: `pg`, `rubyzip` 3.x, `aws-sdk-s3` 1.x and `net-sftp` 4.x. The first two are normally supplied by PostgreSQL-backed Redmine; Bundler must verify the actual installed lockfile. HTTPS/OAuth use Ruby Net::HTTP and OpenSSL.
-- Writable private persistent local storage. An OS-managed worker, working outbound HTTPS/SSH and the existing Redmine email mechanism are operational dependencies.
+- Writable private persistent local storage, working outbound HTTPS/SSH and the existing Redmine email mechanism. Redmine manages its own worker; no separate worker service or OS scheduler is required.
 - Read access to required external configuration/state. The plugin cannot elevate OS permissions or back up unreadable service-account secrets.
 
 ## Administration endpoints
