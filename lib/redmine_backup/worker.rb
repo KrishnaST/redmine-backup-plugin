@@ -265,22 +265,28 @@ module RedmineBackup
         begin
           provider = @provider_factory.call(target, checkpoint)
           provider.health!
+          folder_name = BackupLayout.folder_name(run)
+          unless run['config']['packaging'] == 'zip'
+            state['folder'] = provider.prepare_run(folder_name, state['folder'])
+            save_run(run)
+          end
           state['protection'] = target['retention_lock'] || target['versioning'] ? 'checking' : 'not_requested'
           run['artifacts'].each do |item|
             next if state['artifacts'].any? { |existing| existing['name'] == item['name'] }
             state['current_artifact'] = item['name']
-            key = "#{run['installation_id']}-#{run['id']}-#{item['name']}"
+            key = run['config']['packaging'] == 'zip' ? "#{folder_name}.zip" : "#{folder_name}/#{item['name']}"
             reference = provider.upload(File.join(@store.run_path(run['id']), item['name']), key, state['sessions'].fetch(item['name'], {}))
             provider.verify!(reference, item)
             state['artifacts'] << item.merge('reference' => reference)
             save_run(run)
           end
           record = { 'installation_id' => run['installation_id'], 'id' => run['id'], 'date' => run['date'],
-                     'completed_at' => Time.now.utc.iso8601, 'verified' => true, 'artifacts' => state['artifacts'] }
+                     'completed_at' => Time.now.utc.iso8601, 'verified' => true, 'artifacts' => state['artifacts'], 'folder' => state['folder'] }
           marker_path = File.join(@store.run_path(run['id']), "#{slot}-complete.json")
           @store.atomic(marker_path, JSON.generate(record))
           state['current_artifact'] = 'marker'
-          state['marker'] = provider.upload(marker_path, "#{run['installation_id']}-#{run['id']}-complete.json", state['sessions'].fetch('marker', {}))
+          marker_key = run['config']['packaging'] == 'zip' ? "#{folder_name}-complete.json" : "#{folder_name}/complete.json"
+          state['marker'] = provider.upload(marker_path, marker_key, state['sessions'].fetch('marker', {}))
           provider.verify!(state['marker'], 'bytes' => File.size(marker_path), 'sha256' => Digest::SHA256.file(marker_path).hexdigest)
           state['verified'], state['completed_at'], state['error'] = true, Time.now.utc.iso8601, nil
           state['protection'] = 'verified' if target['retention_lock'] || target['versioning']
@@ -317,6 +323,7 @@ module RedmineBackup
         raise Error, 'FOREIGN_BACKUP_MARKER' unless record['installation_id'] == run['installation_id'] && record['verified'] == true
         @store.run_path(record.fetch('id'))
         namespace = "#{run['installation_id']}-#{record['id']}-"
+        provider.assert_folder!(record['folder'], namespace.delete_suffix('-')) if record['folder']
         provider.assert_reference!(reference, namespace)
         record.fetch('artifacts').each { |item| provider.assert_reference!(item.fetch('reference'), namespace) }
         record.merge('marker' => reference)

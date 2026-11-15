@@ -11,7 +11,7 @@ import tarfile
 def main():
     root = pathlib.Path(__file__).resolve().parent.parent
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
-    paths = ["app", "assets", "config", "documentation", "lib", "templates", "Gemfile", "init.rb", "README.md", "LICENSE"]
+    paths = ["app", "assets", "bin", "config", "documentation", "lib", "templates", "Gemfile", "init.rb", "README.md", "LICENSE"]
     archive = subprocess.check_output(["git", "archive", "--format=tar", revision, *paths], cwd=root)
     destination = root / "tmp" / "deployment" / "redmine-backup-plugin.tar.gz"
     destination.parent.mkdir(parents=True, exist_ok=True)

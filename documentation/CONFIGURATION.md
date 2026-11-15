@@ -21,7 +21,7 @@ Disabled by default: no secondary settings/checks/uploads/alerts are required. W
 - **Redundant:** attempt both destinations on every run, including when primary fails. Both verified copies satisfy protection. One verified copy is Partially Protected; its local payload remains protected for retry.
 - **Failover:** exhaust bounded primary upload retries, then upload to secondary using the same artifacts. Next run tries primary first. A valid fallback gives Failover Used status while the primary failure generates an alert.
 
-Within an active run, bounded transfer retries skip already verified targets. Recovery from a missed/failed backup or upload creates a fresh full database/files capture with a new run ID and the currently saved destinations and credentials. The **Retry upload** and **Retry packaging** controls appear only on the latest finished run; both take a fresh backup before uploading. Older queued retry requests are converted to fresh captures. Historical copies keep their original locations, checksums and marker references; old remote partials are not blindly removed.
+Within an active run, bounded transfer retries skip already verified targets. Recovery from a missed/failed backup or upload creates a fresh full database/files capture with a new run ID and the currently saved destinations and credentials. **Retry backup** appears only on the latest run when an upload failed, including a missing required redundant copy. Successful or still-running uploads have no retry button; there is no separate packaging retry control. Older queued retry requests are converted to fresh captures. Historical copies keep their original locations, checksums and marker references; old remote partials are not blindly removed.
 
 ## Storage reconfiguration
 
@@ -63,11 +63,19 @@ Configure bucket, region and optional key prefix. Leave endpoint blank for AWS; 
 
 Locked cleanup shows Deferred Locked. It does not invalidate a verified upload. Noncurrent versions and deleted-marker history may remain subject to provider lifecycle policies. S3-compatible endpoints do not automatically support AWS's versioning/Object Lock APIs; capability failures are reported.
 
+## Backup folders and ZIP layout
+
+**One backup folder** uploads each complete set into a separate directory beneath the configured destination. Its name combines the installation ID and unique timestamp/run ID, preventing collisions between installations. It contains `database.dump`, `application.tar.gz`, `bootstrap.json`, `RECOVERY.md`, `manifest.json` and a verified `complete.json` marker. On S3-compatible storage the directory is an object-key prefix; SFTP creates one private child directory in the configured existing destination.
+
+**ZIP of backup folder** uploads `<backup-folder>.zip` directly in the destination root. The ZIP contains one top-level `<backup-folder>/` with the five captured components inside it. A small `<backup-folder>-complete.json` file beside the ZIP records successful verification and enables safe retention. ZIP mode does not create a remote child folder or upload the individual captured components separately.
+
+Retention detects both these layouts and previously uploaded flat sets. It verifies folder ownership/parent, marker and artifact references before removing a retained set. Folder cleanup removes known payloads and its completion marker, then removes only the empty owned directory. Unexpected additional files prevent directory removal; unrelated files are not recursively deleted. Incomplete folders remain protected for investigation. Existing backups are not reorganized when installing this version.
+
 ## Retry and history
 
 The **Show backup status on administrator homepage** option is on by default. The homepage panel shows the latest result, last verified local/remote success, worker heartbeat, schedule and recovery mode. It does not expose paths, credentials or backup controls to bank/non-administrator users. Scheduling remains disabled until explicitly enabled.
 
-Back Up Now, Retry Upload, Retry Packaging, Check Setup and Test Notification enqueue durable work. The browser does not perform long-running capture or transfer. History separates local capture, packaging, primary/secondary verification, requested protection and cleanup. Startup catch-up and interrupted-work recovery take a fresh snapshot; they do not upload a stale historical capture. A failed completed run remains in history and generates an alert; its recovery control or the next scheduled backup starts fresh. No bandwidth throttle is configured, but provider Retry-After/backoff remains in effect.
+Back Up Now, Retry Backup, Check Setup and Test Notification enqueue durable work. The browser does not perform long-running capture or transfer. Capture / upload result explicitly reports Upload successful, Upload failed, Upload incomplete or Upload in progress, with separate messages before upload starts. Success requires the configured verified copy/copies. Startup catch-up and interrupted-work recovery take a fresh snapshot; they do not upload a stale historical capture. A failed completed run remains in history and generates an alert; its recovery control or the next scheduled backup starts fresh. No bandwidth throttle is configured, but provider Retry-After/backoff remains in effect.
 
 Check Setup queues tool/path/disk/provider capability checks and shows their results on the dashboard. Backup/upload failures always generate a deduplicated notification request. Recovery confirmations and scheduled daily-success summaries are optional/off by default. Emails include the run/event, timestamp, last local/remote success and one administrator details link. Recipient selection is resolved against active current users/group members at delivery time.
 

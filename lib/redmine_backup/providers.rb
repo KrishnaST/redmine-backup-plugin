@@ -43,6 +43,19 @@ module RedmineBackup
 
       def close; end
 
+      def prepare_run(name, reference = nil)
+        BackupLayout.validate_folder!(name)
+        assert_folder!(reference, name) if reference
+        { 'name' => name }
+      end
+
+      def assert_folder!(reference, name)
+        BackupLayout.validate_folder!(name)
+        raise Error, 'FOREIGN_BACKUP_FOLDER' unless reference['name'] == name
+      end
+
+      def delete_folder(_reference); end
+
       def assert_reference!(_reference, _namespace)
         raise Error, 'PROVIDER_NAMESPACE_CHECK_REQUIRED'
       end
@@ -53,6 +66,7 @@ module RedmineBackup
         # Remove discovery marker first: partially deleted sets must not look restorable.
         delete(record.fetch('marker'))
         record.fetch('artifacts').each { |item| delete(item.fetch('reference')) }
+        delete_folder(record['folder']) if record['folder']
       end
 
       def locked?(_reference)
@@ -159,7 +173,7 @@ module RedmineBackup
       def list_markers(prefix)
         @client.list_objects_v2(bucket: @bucket, prefix: scoped(prefix)).flat_map do |page|
           page.contents.filter_map do |object|
-            next unless object.key.end_with?('-complete.json')
+            next unless object.key.end_with?('-complete.json', '/complete.json')
             metadata = @client.head_object(bucket: @bucket, key: object.key)
             { 'key' => object.key, 'version_id' => metadata.version_id }
           end
@@ -171,7 +185,11 @@ module RedmineBackup
       end
 
       def assert_reference!(reference, namespace)
-        raise Error, 'FOREIGN_OBJECT_REFERENCE' unless reference.fetch('key').start_with?(scoped(namespace))
+        key = reference.fetch('key')
+        prefix = target['prefix'].to_s.gsub(%r{\A/+|/+$}, '')
+        raise Error, 'FOREIGN_OBJECT_REFERENCE' if !prefix.empty? && !key.start_with?(prefix + '/')
+        logical = prefix.empty? ? key : key.delete_prefix(prefix + '/')
+        raise Error, 'FOREIGN_OBJECT_REFERENCE' unless BackupLayout.owned_key?(logical, namespace)
       end
 
       def locked?(reference)
@@ -221,6 +239,32 @@ module RedmineBackup
         true
       end
 
+      def prepare_run(name, reference = nil)
+        BackupLayout.validate_folder!(name)
+        folder = reference || { 'name' => name, 'path' => "#{@directory}/#{name}" }
+        begin
+          assert_folder!(folder, name)
+        rescue Net::SFTP::StatusException => error
+          raise unless error.code == 2 && !reference
+          @sftp.mkdir!(folder.fetch('path'), permissions: 0o700)
+          assert_folder!(folder, name)
+        end
+        folder
+      end
+
+      def assert_folder!(reference, name)
+        super
+        raise Error, 'FOREIGN_BACKUP_FOLDER' unless reference['path'] == "#{@directory}/#{name}"
+        attributes = @sftp.lstat!(reference.fetch('path'))
+        raise Error, 'UNSAFE_BACKUP_FOLDER' unless attributes.directory? && !attributes.symlink?
+      end
+
+      def delete_folder(reference)
+        assert_folder!(reference, reference.fetch('name'))
+        # rmdir removes only an empty directory; never recursively delete remote data.
+        @sftp.rmdir!(reference.fetch('path'))
+      end
+
       def upload(path, key, _session = {})
         final = "#{@directory}/#{key}"
         partial = "#{final}.partial"
@@ -262,8 +306,18 @@ module RedmineBackup
       end
 
       def list_markers(prefix)
-        @sftp.dir.entries(@directory).filter_map do |entry|
-          { 'path' => "#{@directory}/#{entry.name}" } if entry.name.start_with?(prefix) && entry.name.end_with?('-complete.json')
+        @sftp.dir.entries(@directory).flat_map do |entry|
+          next [] unless entry.name.start_with?(prefix)
+          path = "#{@directory}/#{entry.name}"
+          if entry.name.end_with?('-complete.json') && !entry.attributes.directory? && !entry.attributes.symlink?
+            [{ 'path' => path }]
+          elsif entry.name.delete_prefix(prefix).match?(/\A\d{8}T\d{6}Z-[a-f0-9]{12}\z/) && entry.attributes.directory? && !entry.attributes.symlink?
+            @sftp.dir.entries(path).filter_map do |child|
+              { 'path' => "#{path}/complete.json" } if child.name == 'complete.json' && !child.attributes.directory? && !child.attributes.symlink?
+            end
+          else
+            []
+          end
         end
       end
 
@@ -278,7 +332,9 @@ module RedmineBackup
       end
 
       def assert_reference!(reference, namespace)
-        raise Error, 'FOREIGN_OBJECT_REFERENCE' unless reference.fetch('path').start_with?("#{@directory}/#{namespace}") && !reference['path'].split('/').include?('..')
+        path = reference.fetch('path')
+        raise Error, 'FOREIGN_OBJECT_REFERENCE' unless path.start_with?(@directory + '/') && !path.split('/').include?('..')
+        raise Error, 'FOREIGN_OBJECT_REFERENCE' unless BackupLayout.owned_key?(path.delete_prefix(@directory + '/'), namespace)
       end
     end
   end

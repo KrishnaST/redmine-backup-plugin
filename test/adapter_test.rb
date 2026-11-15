@@ -48,8 +48,85 @@ class AdapterTest < BackupTest
     assert_equal({}, checkpoints.last[1])
   end
 
+  def test_google_upload_places_plain_component_name_inside_prepared_backup_folder
+    name = 'test-20261115T143000Z-abcdef123456'
+    target = { 'provider' => 'google_drive', 'access_token' => 'fixture', 'expires_at' => Time.now.to_i + 3600, 'folder_id' => 'destination' }
+    folder = { 'id' => 'backup-folder', 'name' => name, 'mimeType' => 'application/vnd.google-apps.folder', 'parents' => ['destination'] }
+    http = FakeHttp.new([response(200, 'files' => []), response(200, folder),
+                         response(200, {}, 'location' => 'https://www.googleapis.com/upload/session'), response(200, 'id' => 'payload')])
+    provider = RedmineBackup::Providers::CloudDrive.new(target)
+    provider.instance_variable_set(:@http, http)
+    provider.prepare_run(name)
+    path = File.join(@temporary, 'database.dump')
+    File.write(path, 'payload')
+    reference = provider.upload(path, "#{name}/database.dump")
+    metadata = JSON.parse(http.requests[2][2][:body])
+    assert_equal 'database.dump', metadata['name']
+    assert_equal ['backup-folder'], metadata['parents']
+    assert_equal 'backup-folder', reference['folder_id']
+    assert_equal name, reference['folder_name']
+  end
+
+  def test_cloud_retention_finds_both_nested_completion_markers_and_older_flat_markers
+    name = 'test-20261115T143000Z-abcdef123456'
+    folder = { 'id' => 'folder', 'name' => name, 'mimeType' => 'application/vnd.google-apps.folder' }
+    http = FakeHttp.new([response(200, 'files' => [folder, { 'id' => 'legacy', 'name' => "#{name}-complete.json" },
+                                                  { 'id' => 'foreign', 'name' => 'unrelated-folder', 'mimeType' => 'application/vnd.google-apps.folder' }]),
+                         response(200, 'files' => [{ 'id' => 'marker', 'name' => 'complete.json' }, { 'id' => 'other', 'name' => 'keep.txt' }])])
+    provider = RedmineBackup::Providers::CloudDrive.new({ 'provider' => 'google_drive', 'folder_id' => 'destination', 'access_token' => 'fixture', 'expires_at' => Time.now.to_i + 3600 })
+    provider.instance_variable_set(:@http, http)
+    references = provider.list_markers('test-')
+    assert_equal %w[marker legacy], references.map { |reference| reference['id'] }
+    assert_equal 'folder', references.first['folder_id']
+    assert_equal 2, http.requests.length
+  end
+
+  def test_s3_folder_and_zip_references_remain_inside_exact_configured_prefix
+    client = Aws::S3::Client.new(stub_responses: true, region: 'us-east-1')
+    provider = nil
+    Aws::S3::Client.stub(:new, client) { provider = RedmineBackup::Providers::S3.new({ 'bucket' => 'test', 'prefix' => 'backups' }) }
+    namespace = 'test-20261115T143000Z-abcdef123456-'
+    folder = namespace.delete_suffix('-')
+    provider.assert_reference!({ 'key' => "backups/#{folder}/database.dump" }, namespace)
+    provider.assert_reference!({ 'key' => "backups/#{folder}.zip" }, namespace)
+    assert_raises(RedmineBackup::Error) { provider.assert_reference!({ 'key' => "#{folder}/database.dump" }, namespace) }
+    assert_raises(RedmineBackup::Error) { provider.assert_reference!({ 'key' => "backups/#{folder}/keep.txt" }, namespace) }
+    assert_raises(RedmineBackup::Error) { provider.assert_reference!({ 'key' => "backups/#{folder}/../database.dump" }, namespace) }
+  end
+
+  def test_sftp_run_folder_creation_and_empty_directory_cleanup_are_scoped
+    require 'net/sftp'
+    attributes = Object.new
+    attributes.define_singleton_method(:directory?) { true }
+    attributes.define_singleton_method(:symlink?) { false }
+    missing = true
+    calls = []
+    transport = Object.new
+    transport.define_singleton_method(:lstat!) do |_path|
+      if missing
+        error = Net::SFTP::StatusException.allocate
+        error.define_singleton_method(:code) { 2 }
+        raise error
+      end
+      attributes
+    end
+    transport.define_singleton_method(:mkdir!) { |path, **options| calls << [path, options]; missing = false }
+    transport.define_singleton_method(:rmdir!) { |path| calls << [:rmdir, path] }
+    provider = RedmineBackup::Providers::Sftp.allocate
+    provider.instance_variable_set(:@directory, '/backups')
+    provider.instance_variable_set(:@sftp, transport)
+    name = 'test-20261115T143000Z-abcdef123456'
+    folder = provider.prepare_run(name)
+    assert_equal "/backups/#{name}", folder['path']
+    assert_equal 0o700, calls.first[1][:permissions]
+    provider.delete_folder(folder)
+    assert_equal [:rmdir, "/backups/#{name}"], calls.last
+    assert_raises(RedmineBackup::Error) { provider.prepare_run('../outside') }
+    assert_raises(RedmineBackup::Error) { provider.assert_folder!({ 'name' => name, 'path' => '/other' }, name) }
+  end
+
   def test_onedrive_resumes_from_acknowledged_offset_without_forwarding_bearer
-    target = { 'provider' => 'onedrive' }
+    target = { 'provider' => 'onedrive', 'folder_id' => 'destination' }
     provider = RedmineBackup::Providers::CloudDrive.new(target)
     http = FakeHttp.new([response(200, 'nextExpectedRanges' => ['3-']), response(201, 'id' => 'file-id')])
     provider.instance_variable_set(:@http, http)

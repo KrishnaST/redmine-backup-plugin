@@ -4,13 +4,14 @@ This guide is included in every backup. Test it on an isolated replacement host 
 
 ## 1. Select and verify
 
-Choose a complete verified recovery set. Download all components, or the single ZIP. If using ZIP, unpack into a new private staging directory after checking that entry names contain no absolute paths or parent traversal. The ZIP contains `manifest.json`, `database.dump`, `application.tar.gz`, `bootstrap.json` and this guide. Separate mode provides the same files directly.
+Choose a complete verified recovery set. In folder mode download the complete backup folder; in ZIP mode download its named ZIP. Unpack ZIP into a new private staging directory after checking that entry names contain no absolute paths or parent traversal. The ZIP contains one top-level backup folder holding `manifest.json`, `database.dump`, `application.tar.gz`, `bootstrap.json` and this guide. Set `BACKUP_ROOT` to the directory containing those five components; for older flat ZIPs this is the extraction directory itself.
 
 Run the repository's standalone verifier with Ruby:
 
 ```sh
-ruby bin/redmine-backup-verify /private/staging/manifest.json
-pg_restore --list /private/staging/database.dump >/dev/null
+BACKUP_ROOT="/private/staging/YOUR_BACKUP_FOLDER"
+ruby bin/redmine-backup-verify "$BACKUP_ROOT/manifest.json"
+pg_restore --list "$BACKUP_ROOT/database.dump" >/dev/null
 ```
 
 The verifier checks file sizes and SHA256 against the manifest. The dump catalog check does not prove successful restore. The manifest records source roots and external-file archive mappings. Never publish `bootstrap.json`: it includes private database/provider configuration and Rails key material, because archive encryption was deliberately not requested.
@@ -37,7 +38,7 @@ Reconstruct the private plugin control directory from the verified bootstrap usi
 
 ```sh
 bundle exec ruby plugins/redmine_backup_plugin/bin/redmine-backup-bootstrap \
-  /private/staging/bootstrap.json /private/new-backup-store
+  "$BACKUP_ROOT/bootstrap.json" /private/new-backup-store
 ```
 
 The destination must be empty with a writable existing parent. This restores encrypted metadata, grants and audit/history with a mandatory Recovery marker. Historical local payloads are marked unavailable because old backup directories are not recursively included in each new backup. Pending jobs are cleared. Review the generated private `restored-plugin-settings.json`, including paths and recipients, and import its non-secret settings through an explicitly controlled Rails maintenance session:

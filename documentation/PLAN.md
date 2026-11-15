@@ -39,7 +39,7 @@ Capture uses an exported PostgreSQL repeatable-read, read-only snapshot for the 
 
 ## Packaging and upload
 
-Separate components are the default. Single-ZIP mode wraps the same dump/archive/bootstrap/manifest/guide and checks the resulting archive. Already compressed components are stored without recompression. Recovery after a missed/failed backup/upload takes a new full backup. Bounded chunk retries within an active run can resume that run's upload; a restarted recovery run never borrows old sessions or artifacts.
+One remote backup folder per run is the default. Single-ZIP mode places the five components inside one top-level backup folder in the ZIP, uploads the named archive directly in the destination root, and checks the resulting archive. Already compressed components are stored without recompression. Recovery after a missed/failed backup/upload takes a new full backup. Bounded chunk retries within an active run can resume that run's upload; a restarted recovery run never borrows old sessions or artifacts.
 
 Adapters cover Google My Drive/Shared Drives, OneDrive Personal/Business, SharePoint document libraries, SFTP and S3-compatible endpoints. Authentication choices and provider prerequisites are indexed in [provider authentication](AUTHENTICATION.md). Other Ruby-capable services are cataloged as future adapters, not implied implemented support. Authentication, resumability, integrity checks and ownership-scoped retention are provider-specific. A completion marker is published only after all required artifacts verify.
 

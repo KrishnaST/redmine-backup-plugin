@@ -35,11 +35,11 @@ class WorkerTest < BackupTest
     end
 
     def list_markers(prefix)
-      @objects.keys.filter_map { |key| { 'key' => key } if key.start_with?(prefix) && key.end_with?('-complete.json') }
+      @objects.keys.filter_map { |key| { 'key' => key } if key.start_with?(prefix) && key.end_with?('-complete.json', '/complete.json') }
     end
 
     def assert_reference!(reference, namespace)
-      raise RedmineBackup::Error, 'FOREIGN_REFERENCE' unless reference.fetch('key').start_with?(namespace)
+      raise RedmineBackup::Error, 'FOREIGN_REFERENCE' unless RedmineBackup::BackupLayout.owned_key?(reference.fetch('key'), namespace)
     end
 
     def delete(reference)
@@ -96,6 +96,41 @@ class WorkerTest < BackupTest
     upload
     assert_equal 'complete', @run['status']
     assert_empty @secondary.objects
+    folder = RedmineBackup::BackupLayout.folder_name(@run)
+    assert_equal ["#{folder}/complete.json", "#{folder}/database.dump"], @primary.objects.keys.sort
+    assert_equal folder, @run.dig('destinations', 'primary', 'folder', 'name')
+  end
+
+  def test_zip_upload_is_one_named_archive_in_destination_root
+    setup_run(nil, packaging: 'zip')
+    File.write(File.join(@store.run_path(@run['id']), 'backup.zip'), 'archive')
+    @run['artifacts'] = [{ 'name' => 'backup.zip', 'bytes' => 7, 'sha256' => Digest::SHA256.hexdigest('archive') }]
+    upload
+    folder = RedmineBackup::BackupLayout.folder_name(@run)
+    assert_equal 'complete', @run['status']
+    assert_equal ["#{folder}-complete.json", "#{folder}.zip"], @primary.objects.keys.sort
+    refute @run['destinations']['primary'].key?('folder')
+    assert_equal 'complete', @run.dig('destinations', 'primary', 'cleanup')
+  end
+
+  def test_folder_retention_deletes_payloads_marker_and_the_empty_container
+    setup_run(nil, remote_keep_dates: 1)
+    old_id = '20261101T143000Z-abcdef123456'
+    folder = "test-installation-#{old_id}"
+    marker = "#{folder}/complete.json"
+    payload = "#{folder}/database.dump"
+    @primary.objects[payload] = 'older dump'
+    @primary.objects[marker] = JSON.generate('installation_id' => 'test-installation', 'id' => old_id, 'date' => '2026-11-01',
+                                             'completed_at' => '2026-11-01T14:30:00Z', 'verified' => true, 'folder' => { 'name' => folder },
+                                             'artifacts' => [{ 'reference' => { 'key' => payload } }])
+    removed = []
+    @primary.define_singleton_method(:delete_folder) { |reference| removed << reference['name'] }
+    upload
+    assert_equal 'complete', @run.dig('destinations', 'primary', 'cleanup')
+    assert_equal [folder], removed
+    refute @primary.objects.key?(marker)
+    refute @primary.objects.key?(payload)
+    assert @run.dig('destinations', 'primary', 'verified')
   end
 
   def test_redundant_uploads_both

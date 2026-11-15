@@ -33,6 +33,7 @@ module RedmineBackup
       dump = File.join(destination, 'database.dump')
       archive = File.join(destination, 'application.tar.gz')
       manifest = { 'format' => 1, 'id' => run['id'], 'date' => run['date'], 'installation_id' => run['installation_id'],
+                   'backup_folder' => BackupLayout.folder_name(run), 'packaging' => @config['packaging'],
                    'created_at' => Time.now.utc.iso8601, 'plugin_version' => VERSION,
                    'ruby_version' => RUBY_VERSION, 'rails_version' => defined?(Rails) ? Rails.version : nil,
                    'redmine_version' => defined?(Redmine::VERSION) ? Redmine::VERSION.to_s : nil,
@@ -71,9 +72,10 @@ module RedmineBackup
         Zip.write_zip64_support = true
         zip_path = File.join(destination, 'backup.zip')
         File.delete(zip_path) if File.exist?(zip_path)
+        folder = BackupLayout.folder_name(run)
         Zip::File.open(zip_path, create: true) do |zip|
           payloads.each do |name|
-            entry = Zip::Entry.new('', name)
+            entry = Zip::Entry.new('', "#{folder}/#{name}")
             entry.compression_method = Zip::Entry::STORED
             zip.add(entry, File.join(destination, name))
           end
@@ -86,7 +88,7 @@ module RedmineBackup
                 digest.update(chunk)
               end
             end
-            expected = Digest::SHA256.file(File.join(destination, entry.name)).hexdigest
+            expected = Digest::SHA256.file(File.join(destination, entry.name.delete_prefix("#{folder}/"))).hexdigest
             raise Error, 'ZIP_INTEGRITY_FAILED' unless digest.hexdigest == expected
           end
         end

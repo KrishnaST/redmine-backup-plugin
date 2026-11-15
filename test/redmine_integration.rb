@@ -211,9 +211,22 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     get '/admin/backups'
     assert_response :success
     assert_select 'table.backup-history tbody tr', count: 2
-    assert_select 'table.backup-history tbody tr:first-child input[value="Retry upload"]', count: 1
-    assert_select 'table.backup-history tbody tr:first-child input[value="Retry packaging"]', count: 1
+    assert_select 'table.backup-history strong', text: 'Upload failed', count: 2
+    assert_select 'table.backup-history tbody tr:first-child input[value="Retry backup"]', count: 1
+    assert_select 'input[value="Retry packaging"]', count: 0
     assert_select 'table.backup-history tbody tr:last-child form', count: 0
+  end
+
+  def test_successful_upload_is_explicit_and_has_no_retry_button
+    sign_in
+    runtime = RedmineBackup::Runtime.new
+    runtime.store.write('runs', [{ 'id' => '20261115T143000Z-abcdef123456', 'status' => 'complete', 'date' => '2026-11-15',
+                                  'captured' => true, 'completed_at' => '2026-11-15T14:30:00Z',
+                                  'destinations' => { 'primary' => { 'verified' => true } } }])
+    get '/admin/backups'
+    assert_response :success
+    assert_select 'table.backup-history strong', text: 'Upload successful'
+    assert_select 'table.backup-history form', count: 0
   end
 
   def test_valid_callback_persists_private_grant_and_rejects_replay
@@ -324,5 +337,17 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     assert_equal 'PGDMP', File.binread(dump, 5)
     manifest = JSON.parse(File.read(File.join(runtime.store.run_path(run['id']), 'manifest.json')))
     assert manifest['files'].any? { |item| item['attachment_id'].to_i == @attachment.id }
+    zip_configuration = RedmineBackup::Configuration.new(configuration.values.merge('packaging' => 'zip')).validate!
+    zip_capture = RedmineBackup::Capture.new(config: zip_configuration, store: runtime.store, application_root: application,
+                                            attachment_root: Attachment.storage_path,
+                                            database: ActiveRecord::Base.connection_db_config.configuration_hash,
+                                            secret_key: Rails.application.secret_key_base)
+    assert_equal ['backup.zip'], zip_capture.package(run).map { |item| item['name'] }
+    folder = RedmineBackup::BackupLayout.folder_name(run)
+    Zip::File.open(File.join(runtime.store.run_path(run['id']), 'backup.zip')) do |zip|
+      assert_equal 5, zip.entries.length
+      assert zip.entries.all? { |entry| entry.name.start_with?(folder + '/') }
+      assert_equal run['id'], JSON.parse(zip.read("#{folder}/manifest.json"))['id']
+    end
   end
 end

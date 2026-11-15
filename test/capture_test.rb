@@ -136,7 +136,8 @@ class CaptureTest < BackupTest
     result = perform(settings)
     assert_equal ['backup.zip'], result.map { |item| item['name'] }
     Zip::File.open(File.join(@store.run_path(@run['id']), 'backup.zip')) do |zip|
-      assert_equal %w[RECOVERY.md application.tar.gz bootstrap.json database.dump manifest.json], zip.map(&:name).sort
+      folder = RedmineBackup::BackupLayout.folder_name(@run)
+      assert_equal %w[RECOVERY.md application.tar.gz bootstrap.json database.dump manifest.json].map { |name| "#{folder}/#{name}" }, zip.map(&:name).sort
     end
     calls = @tools.calls.length
     capture(settings).package(@run)

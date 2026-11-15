@@ -1,6 +1,6 @@
 # Redmine Backup
 
-Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.3.2 updates storage references on reconfiguration, takes fresh backups for missed/failed upload recovery and adds administrator history-clearing controls. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
+Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.3.3 uploads each backup into its own folder, or one named ZIP containing that folder directly in the destination root. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
 
 ## Features
 
@@ -10,9 +10,9 @@ Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified 
 - Configurable retention: local successful dates, default remote successful dates, and an optional override for each destination. Defaults are 3 local / 10 remote dates; valid range 1–3650. Pending copies and the last good copy are protected.
 - Primary destination with an optional secondary, disabled by default. **Redundant** requires both verified copies. **Failover** attempts secondary only after primary retries fail.
 - Google Drive, OneDrive Personal/Business, SharePoint document libraries, SFTP and S3-compatible adapters. Resumability is provider-specific; verification uses streamed SHA256 read-back. No plugin bandwidth throttle.
-- Separate components or single ZIP, no additional archive encryption. No 7z, Python, Java or rclone dependency.
+- One folder per backup or one named ZIP of that folder; verified completion markers and ownership-safe retention. No additional archive encryption. No 7z, Python, Java or rclone dependency.
 - Startup catch-up, durable queue, process lock, heartbeat, crash reconciliation, encrypted control state, coverage-change indication and audit history.
-- Missed schedules, interrupted transfers and manual recovery take a fresh full backup using current configuration. Retry upload/packaging controls appear only on the latest run. Bounded retries within an active upload can still resume chunks.
+- Missed schedules, interrupted transfers and manual recovery take a fresh full backup using current configuration. Retry backup appears only for a failed upload on the latest run; successful uploads have no retry control. Bounded retries within an active upload can still resume chunks.
 - Storage changes clear incompatible application/folder references. Historical copies retain their original references and checksums.
 - Clear backup, audit or notification history independently; backup files, retention metadata, pending work and alerts awaiting delivery are protected.
 - Existing Redmine mail delivery, selected existing users/groups, test notification and bounded mail retries.

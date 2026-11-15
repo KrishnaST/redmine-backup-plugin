@@ -66,8 +66,21 @@ module RedmineBackup
         true
       end
 
+      def prepare_run(name, reference = nil)
+        @run_folder = folders.prepare(name, reference)
+      end
+
+      def assert_folder!(reference, name)
+        folders.assert!(reference, name)
+      end
+
+      def delete_folder(reference)
+        folders.delete_empty(reference)
+      end
+
       def upload(path, key, session = {})
         protect!
+        upload_location(key)
         state = session.dup
         size = File.size(path)
         offset = 0
@@ -78,7 +91,7 @@ module RedmineBackup
                     @http.request('get', state['url'])
                   end
           if google? && [200, 201].include?(probe.code.to_i)
-            return { 'id' => @http.json!(probe).fetch('id') }
+            return file_reference(@http.json!(probe).fetch('id'), key)
           elsif probe.code.to_i == 308 || (!google? && probe.code.to_i == 200)
             offset = next_offset(probe)
           elsif [404, 410].include?(probe.code.to_i)
@@ -101,7 +114,7 @@ module RedmineBackup
             response = @http.request('put', state['url'], headers: headers, body: payload)
             if [200, 201].include?(response.code.to_i)
               @checkpoint.call(key, {})
-              return { 'id' => @http.json!(response).fetch('id') }
+              return file_reference(@http.json!(response).fetch('id'), key)
             end
             expected = offset + payload.bytesize
             offset = next_offset(response)
@@ -127,25 +140,16 @@ module RedmineBackup
       end
 
       def list_markers(prefix)
-        if google?
-          folder = target.fetch('folder_id')
-          raise Error, 'INVALID_DRIVE_FOLDER' unless folder.match?(/\A[a-zA-Z0-9_-]+\z/)
-          query = "'#{folder}' in parents and trashed = false and name contains '#{prefix}'"
-          parameters = { q: query, fields: 'files(id,name),nextPageToken', pageSize: 1000, supportsAllDrives: true, includeItemsFromAllDrives: true }
-          parameters.merge!(corpora: 'drive', driveId: target['shared_drive_id']) unless target['shared_drive_id'].to_s.empty?
-          url = "https://www.googleapis.com/drive/v3/files?#{URI.encode_www_form(parameters)}"
-        else
-          folder = URI.encode_www_form_component(target.fetch('folder_id'))
-          url = "#{graph_base}/items/#{folder}/children?$select=id,name&$top=200"
-        end
         result = []
-        while url
-          response = @http.json!(@http.request('get', url, headers: authorization))
-          items = response.fetch(google? ? 'files' : 'value')
-          result.concat(items.filter_map { |item| { 'id' => item['id'] } if item['name'].start_with?(prefix) && item['name'].end_with?('-complete.json') })
-          url = response['@odata.nextLink']
-          if google? && response['nextPageToken']
-            url = "https://www.googleapis.com/drive/v3/files?#{URI.encode_www_form(parameters.merge(pageToken: response['nextPageToken']))}"
+        folders.children(target.fetch('folder_id')).each do |item|
+          next unless item['name'].start_with?(prefix)
+          if !folders.folder?(item) && item['name'].end_with?('-complete.json')
+            result << { 'id' => item.fetch('id') }
+          elsif folders.folder?(item) && item['name'].delete_prefix(prefix).match?(/\A\d{8}T\d{6}Z-[a-f0-9]{12}\z/)
+            folders.children(item.fetch('id')).each do |child|
+              next unless child['name'] == 'complete.json' && !folders.folder?(child)
+              result << { 'id' => child.fetch('id'), 'folder_id' => item.fetch('id'), 'folder_name' => item.fetch('name') }
+            end
           end
         end
         result
@@ -159,15 +163,31 @@ module RedmineBackup
       end
 
       def assert_reference!(reference, namespace)
-        id = URI.encode_www_form_component(reference.fetch('id'))
-        url = google? ? "https://www.googleapis.com/drive/v3/files/#{id}?fields=name,parents&supportsAllDrives=true" : "#{graph_base}/items/#{id}?$select=name,parentReference"
-        item = @http.json!(@http.request('get', url, headers: authorization))
-        parent_ok = google? ? item.fetch('parents', []).include?(target['folder_id']) : item.dig('parentReference', 'id') == target['folder_id']
+        item = folders.metadata(reference.fetch('id'))
+        parent = reference['folder_id'] || target['folder_id']
+        parent_ok = google? ? item.fetch('parents', []).include?(parent) : item.dig('parentReference', 'id') == parent
         parent_ok &&= item.dig('parentReference', 'driveId') == target['drive_id'] if !google? && !target['drive_id'].to_s.empty?
-        raise Error, 'FOREIGN_OBJECT_REFERENCE' unless item.fetch('name').start_with?(namespace) && parent_ok
+        if reference['folder_id']
+          name = namespace.delete_suffix('-')
+          folders.assert!({ 'id' => reference['folder_id'], 'name' => reference.fetch('folder_name') }, name)
+          owned = BackupLayout::COMPONENTS.include?(item['name'])
+        else
+          owned = BackupLayout.owned_key?(item.fetch('name'), namespace)
+        end
+        raise Error, 'FOREIGN_OBJECT_REFERENCE' unless owned && parent_ok && !folders.folder?(item)
       end
 
       private
+
+      def folders
+        @folders ||= CloudFolderService.new(target, http: @http, authorization: -> { authorization })
+      end
+
+      def file_reference(identifier, key)
+        reference = { 'id' => identifier }
+        reference.merge!('folder_id' => @run_folder.fetch('id'), 'folder_name' => @run_folder.fetch('name')) if key.include?('/')
+        reference
+      end
 
       def check_folder!
         folder = CloudLocationService.segment(target['folder_id'])
@@ -203,19 +223,30 @@ module RedmineBackup
       end
 
       def create_session(key, size)
+        parent, name = upload_location(key)
         if google?
-          metadata = JSON.generate(name: key, parents: [target.fetch('folder_id')])
+          metadata = JSON.generate(name: name, parents: [parent])
           response = @http.request('post', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true',
                                    headers: authorization.merge('Content-Type' => 'application/json', 'X-Upload-Content-Length' => size.to_s), body: metadata)
           raise Error, 'UPLOAD_SESSION_FAILED' unless response.code.to_i == 200
           response.fetch('location')
         else
-          folder = URI.encode_www_form_component(target.fetch('folder_id'))
-          name = URI.encode_www_form_component(key)
-          response = @http.request('post', "#{graph_base}/items/#{folder}:/#{name}:/createUploadSession",
+          folder = URI.encode_www_form_component(parent)
+          encoded_name = URI.encode_www_form_component(name)
+          response = @http.request('post', "#{graph_base}/items/#{folder}:/#{encoded_name}:/createUploadSession",
                                    headers: authorization.merge('Content-Type' => 'application/json'),
-                                   body: JSON.generate(item: { '@microsoft.graph.conflictBehavior' => 'replace', name: key }))
+                                   body: JSON.generate(item: { '@microsoft.graph.conflictBehavior' => 'replace', name: name }))
           @http.json!(response).fetch('uploadUrl')
+        end
+      end
+
+      def upload_location(key)
+        if key.include?('/')
+          folder, name = key.split('/', 2)
+          raise Error, 'BACKUP_FOLDER_NOT_PREPARED' unless @run_folder && @run_folder['name'] == folder && BackupLayout::COMPONENTS.include?(name)
+          [@run_folder.fetch('id'), name]
+        else
+          [target.fetch('folder_id'), key]
         end
       end
 
