@@ -41,7 +41,7 @@ Capture uses an exported PostgreSQL repeatable-read, read-only snapshot for the 
 
 Separate components are the default. Single-ZIP mode wraps the same dump/archive/bootstrap/manifest/guide and checks the resulting archive. Already compressed components are stored without recompression. Packaging retry reuses verified components; upload retry reuses verified payloads without another dump.
 
-Initial adapters are Google Drive, OneDrive `/me/drive`, SFTP and S3-compatible endpoints. Other Ruby-capable services are cataloged as future adapters, not implied implemented support. Authentication, resumability, integrity checks and ownership-scoped retention are provider-specific. A completion marker is published only after all required artifacts verify.
+Adapters cover Google My Drive/Shared Drives, OneDrive Personal/Business, SharePoint document libraries, SFTP and S3-compatible endpoints. Authentication choices and provider prerequisites are indexed in [provider authentication](AUTHENTICATION.md). Other Ruby-capable services are cataloged as future adapters, not implied implemented support. Authentication, resumability, integrity checks and ownership-scoped retention are provider-specific. A completion marker is published only after all required artifacts verify.
 
 The optional secondary supports:
 

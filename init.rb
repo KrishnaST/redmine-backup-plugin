@@ -16,4 +16,4 @@ Redmine::Plugin.register :redmine_backup_plugin do
        caption: 'Backups', html: { class: 'icon icon-save' }
 end
 
-Rails.application.config.filter_parameters += %i[client_secret access_token refresh_token password private_key key_passphrase secret_access_key session_token code state]
+Rails.application.config.filter_parameters += %i[backup client_secret access_token refresh_token password private_key key_passphrase secret_access_key session_token service_account_json certificate_pem device_code user_code assertion client_assertion code state]

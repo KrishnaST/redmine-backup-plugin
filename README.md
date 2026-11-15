@@ -1,6 +1,6 @@
 # Redmine Backup
 
-Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.2.0 adds provider-specific authentication forms, browser OAuth with PKCE for Google Drive/OneDrive, and an administrator-only homepage status summary. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
+Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.3.0 adds Google Personal/Workspace and Microsoft Personal/Business/SharePoint identity choices, application/service-account authentication, device-code sign-in and document-library routing. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
 
 ## Features
 
@@ -9,7 +9,7 @@ Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified 
 - Full database and file backup every day, default 20:00 Asia/Kolkata. Online capture uses an exported read-only PostgreSQL snapshot and validates referenced attachments.
 - Configurable retention: local successful dates, default remote successful dates, and an optional override for each destination. Defaults are 3 local / 10 remote dates; valid range 1–3650. Pending copies and the last good copy are protected.
 - Primary destination with an optional secondary, disabled by default. **Redundant** requires both verified copies. **Failover** attempts secondary only after primary retries fail.
-- Google Drive, OneDrive, SFTP and S3-compatible adapters. Resumability is provider-specific; verification uses streamed SHA256 read-back. No plugin bandwidth throttle.
+- Google Drive, OneDrive Personal/Business, SharePoint document libraries, SFTP and S3-compatible adapters. Resumability is provider-specific; verification uses streamed SHA256 read-back. No plugin bandwidth throttle.
 - Separate components or single ZIP, no additional archive encryption. No 7z, Python, Java or rclone dependency.
 - Startup catch-up, durable queue, process lock, heartbeat, crash reconciliation, encrypted control state, coverage-change indication and audit history.
 - Retry Upload and Retry Packaging reuse the valid captured set.
@@ -46,7 +46,9 @@ An example [systemd unit](templates/redmine-backup-worker.service) supervises th
 | GET | `/admin/backups` | Dashboard, settings, history and health |
 | POST | `/admin/backups/settings` | Validated settings save |
 | POST | `/admin/backups/actions` | Queue backup, upload retry, packaging retry or test notification |
-| POST | `/admin/backups/connect/:slot` | Begin primary/secondary provider browser OAuth with S256 PKCE |
+| POST | `/admin/backups/connect/:slot` | Connect browser/device/application identity for a destination |
+| GET | `/admin/backups/oauth/device` | Resume the signed-in administrator's pending device authorization |
+| POST | `/admin/backups/oauth/device/poll` | Check an administrator-bound Microsoft device authorization |
 | GET | `/admin/backups/oauth/callback` | State-checked provider callback |
 | POST | `/admin/backups/activate` | Activate a restored host; schedule remains paused |
 
@@ -55,6 +57,8 @@ All endpoints require a Redmine administrator; state-changing requests use Redmi
 ## Environment variables
 
 `RAILS_ENV=production` selects the existing Redmine environment. `REDMINE_BACKUP_RECOVERY=1` forces Recovery Mode and must be removed explicitly before activation can take effect. No storage/database password environment variables are required by this plugin: provider secrets are entered on its admin page and stored encrypted outside the database. Existing Redmine authentication/IAM-role environments continue to work through the selected SDK.
+
+Azure managed identity uses platform-provided `IDENTITY_ENDPOINT` / `IDENTITY_HEADER` on Azure App Service or the fixed Azure VM IMDS endpoint; these must be available to web and worker services. Workload federation and On-Behalf-Of require private externally rotated assertion files; the plugin does not issue upstream identities. No new production gems are required for these methods.
 
 Existing `REDMINE_*_FILE` and `REDMINE_*_DIRECTORY` variables are inspected for external state coverage; their values are not logged. The private bootstrap contains resolved configuration and key material for disaster recovery and is not suitable for publication.
 

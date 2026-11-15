@@ -3,7 +3,7 @@
 | Provider / protocol | Ruby route | Adapter status |
 | --- | --- | --- |
 | Google Drive | Google HTTPS API; a Google-maintained Ruby client also exists | Initial adapter using direct HTTPS |
-| OneDrive | Microsoft Graph HTTPS API | Initial adapter for signed-in `/me/drive` |
+| OneDrive Personal / Business | Microsoft Graph HTTPS API | Delegated or business application identity; explicit drive support |
 | AWS S3 | Official aws-sdk-s3 | Initial adapter |
 | Cloudflare R2 / Backblaze B2 | S3-compatible API with aws-sdk-s3 | Initial adapter; provider capability tests required |
 | SFTP | net-sftp / net-ssh | Initial adapter |
@@ -14,7 +14,7 @@
 | Nextcloud / ownCloud | WebDAV over HTTPS | Future adapter |
 | FTPS | Ruby net-ftp with TLS | Future adapter |
 | Mounted SMB3 / NFSv4 | Ruby filesystem operations after OS mounting | Future destination adapter |
-| SharePoint libraries | Microsoft Graph with explicit drive/library routing | Future extension; not arbitrary `/me/drive` folder IDs |
+| SharePoint libraries | Microsoft Graph with explicit drive/site routing | Implemented; permissions, library access and live testing required |
 
 The core already uses local filesystem storage for capture. That is not evidence of an independent mounted-share/offsite-copy adapter. Secondary storage remains optional and disabled by default.
 

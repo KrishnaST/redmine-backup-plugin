@@ -4,8 +4,8 @@ require 'socket'
 
 module RedmineBackup
   class Runtime
-    SECRET_FIELDS = %w[password private_key key_passphrase client_secret secret_access_key session_token access_token refresh_token expires_at].freeze
-    TARGET_FIELDS = %w[provider auth_method enabled mode remote_keep_dates versioning retention_lock lock_days region endpoint bucket prefix access_key_id host port username private_key_path known_hosts directory client_id tenant_id folder_id].freeze
+    SECRET_FIELDS = %w[password private_key key_passphrase client_secret secret_access_key session_token access_token refresh_token expires_at service_account_json certificate_pem].freeze
+    TARGET_FIELDS = %w[provider auth_method enabled mode remote_keep_dates versioning retention_lock lock_days region endpoint bucket prefix access_key_id host port username private_key_path known_hosts directory account_type client_id tenant_id folder_id shared_drive_id drive_id site_id impersonated_user federated_token_path user_assertion_path].freeze
     attr_reader :store, :config
 
     def self.host_identity
@@ -118,7 +118,8 @@ module RedmineBackup
       checks << { 'name' => 'Recovery activation', 'ok' => !recovery? }
       configuration = ActiveRecord::Base.connection_db_config.configuration_hash
       checks << { 'name' => 'PostgreSQL adapter', 'ok' => configuration[:adapter] == 'postgresql' }
-      paths = [Rails.root.to_s, Attachment.storage_path, *config['additional_paths']]
+      credential_paths = config.destinations.values.flat_map { |target| target.values_at('federated_token_path', 'user_assertion_path') }.compact.reject(&:empty?)
+      paths = [Rails.root.to_s, Attachment.storage_path, *config['additional_paths'], *credential_paths]
       checks << { 'name' => 'Coverage paths readable', 'ok' => paths.all? { |path| File.readable?(path) } }
       checks << { 'name' => 'Alert recipients', 'ok' => NotificationService.new(config, store).recipient_ids.any? }
       checks.concat(store.read('setup_health', []))

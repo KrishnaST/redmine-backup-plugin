@@ -105,7 +105,7 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 
 <p>Separate components are the default. Single-ZIP mode wraps the same dump/archive/bootstrap/manifest/guide and checks the resulting archive. Already compressed components are stored without recompression. Packaging retry reuses verified components; upload retry reuses verified payloads without another dump.</p>
 
-<p>Initial adapters are Google Drive, OneDrive <code>/me/drive</code>, SFTP and S3-compatible endpoints. Other Ruby-capable services are cataloged as future adapters, not implied implemented support. Authentication, resumability, integrity checks and ownership-scoped retention are provider-specific. A completion marker is published only after all required artifacts verify.</p>
+<p>Adapters cover Google My Drive/Shared Drives, OneDrive Personal/Business, SharePoint document libraries, SFTP and S3-compatible endpoints. Authentication choices and provider prerequisites are indexed in <a href="AUTHENTICATION_md.html">provider authentication</a>. Other Ruby-capable services are cataloged as future adapters, not implied implemented support. Authentication, resumability, integrity checks and ownership-scoped retention are provider-specific. A completion marker is published only after all required artifacts verify.</p>
 
 <p>The optional secondary supports:</p>
 <ul><li>
@@ -249,11 +249,11 @@ sudo systemctl status redmine-backup-worker.service</pre>
 
 <p>The adapter uses resumable upload sessions. Shared Drive authorization and tenant-specific behavior require a live compatibility test; do not assume consumer Drive behavior proves Shared Drive support. Reconnect through the same slot if an expired/revoked grant prevents refresh.</p>
 
-<h2 id="configuration-label-OneDrive"><a href="#configuration-label-OneDrive">OneDrive</a></h2>
+<h2 id="configuration-label-OneDrive+and+SharePoint"><a href="#configuration-label-OneDrive+and+SharePoint">OneDrive and SharePoint</a></h2>
 
 <p>Register a Microsoft Entra HTTPS Web application with delegated <code>Files.ReadWrite</code> and offline access. Enter client ID, tenant ID (blank means organizations) and Web client secret. Click <strong>Save settings and connect storage account</strong> for browser sign-in with S256 PKCE. Leave folder ID blank to create <strong>Redmine Backups</strong> after consent. Microsoft consumer accounts may need <code>consumers</code> or <code>common</code> and a matching registration audience.</p>
 
-<p>The initial adapter addresses the signed-in user’s <code>/me/drive</code>. SharePoint document-library routing is a future adapter extension, not implemented by accepting an arbitrary SharePoint folder ID. Upload sessions and preauthenticated downloads are stored privately; Graph bearer tokens are not forwarded to signed download hosts.</p>
+<p>Choose OneDrive Personal, OneDrive for Business or SharePoint document library explicitly. Personal uses the consumers audience. Business/SharePoint support delegated and application identities; configure a drive or site ID for application access. A site selects its default library; drive ID selects a particular library and takes precedence. See <a href="AUTHENTICATION_md.html">all authentication methods</a>. Upload sessions and preauthenticated downloads are stored privately; Graph bearer tokens are not forwarded to signed download hosts.</p>
 
 <p>For both OAuth providers register exactly:</p>
 
@@ -284,96 +284,197 @@ sudo systemctl status redmine-backup-worker.service</pre>
 <section id="authentication" aria-label="Provider authentication"><span id="authentication-top"></span>
 <h1 id="authentication-label-Storage+provider+authentication"><a href="#authentication-label-Storage+provider+authentication">Storage provider authentication</a></h1>
 
-<p>Authentication is provider-specific. Browser OAuth is implemented for Google Drive and OneDrive; an application registration and consent from the actual storage account are still required. No provider becomes connected merely by installing this plugin. Tokens and client secrets are never shown in the page source or stored as plaintext Redmine settings.</p>
+<p>Version 0.3.0 implements the following authentication paths. Application registration, provider-side permissions and real account authorization are still required. Protocol tests do not prove tenant consent, storage quota or a live successful backup. Credentials are write-only inputs stored encrypted in private control storage, separate from Redmine’s cached/database settings.</p>
 
-<h2 id="authentication-label-Implemented+providers+and+visible+inputs"><a href="#authentication-label-Implemented+providers+and+visible+inputs">Implemented providers and visible inputs</a></h2>
+<h2 id="authentication-label-Google+Drive+Personal+is+normal+Google+OAuth"><a href="#authentication-label-Google+Drive+Personal+is+normal+Google+OAuth">Google Drive Personal is normal Google OAuth</a></h2>
+
+<p>A personal Google Account (Gmail or another email registered with Google) uses the same user OAuth authorization-code flow as Google Workspace. Select Google Drive, Personal Google Account, and Browser sign-in. Create an External Web OAuth application that permits that account, register the displayed HTTPS callback, enter its client ID/secret and connect. No Workspace subscription or service account is needed for personal My Drive.</p>
+
+<h2 id="authentication-label-Implemented+methods+and+inputs"><a href="#authentication-label-Implemented+methods+and+inputs">Implemented methods and inputs</a></h2>
 
 <table role="table">
 <thead>
 <tr>
-<th>Provider / authentication</th>
-<th>Inputs shown in the plugin</th>
+<th>Provider</th>
+<th>Method</th>
+<th>Inputs and prerequisites</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Google Drive — browser OAuth 2.0 + S256 PKCE</td>
-<td>Client ID, confidential Web client secret, registered HTTPS callback (read-only), destination folder ID (optional), connection status and Save and Connect</td>
+<td>Google Drive Personal / Workspace</td>
+<td>Browser authorization code + S256 PKCE</td>
+<td>Web client ID/secret, registered callback, account consent; optional folder ID</td>
 </tr>
 <tr>
-<td>OneDrive — delegated browser OAuth 2.0 + S256 PKCE</td>
-<td>Client ID, Web client secret where required, Microsoft tenant, callback, optional destination folder, connection status and Save and Connect</td>
+<td>Google Shared Drive</td>
+<td>Service account</td>
+<td>Private service-account JSON; existing Shared Drive folder or Shared Drive ID; service-account membership/permissions</td>
 </tr>
 <tr>
-<td>S3 — IAM role / default SDK credential chain</td>
-<td>Region, bucket, optional HTTPS endpoint/prefix; credentials supplied to the worker outside the form</td>
+<td>Google Workspace</td>
+<td>Domain-wide delegation</td>
+<td>Service-account JSON, explicitly impersonated Workspace user, administrator-authorized Drive scope; optional folder</td>
 </tr>
 <tr>
-<td>S3 — access key</td>
-<td>Destination fields plus access key ID and secret access key</td>
+<td>Google Drive</td>
+<td>Imported OAuth grant</td>
+<td>Existing access token and Unix expiry; matching client ID/secret and refresh token for automatic renewal</td>
 </tr>
 <tr>
-<td>S3 — temporary STS credentials</td>
-<td>Destination fields plus access key ID, secret and session token</td>
+<td>OneDrive Personal</td>
+<td>Browser authorization code + PKCE</td>
+<td>Personal-account-capable client registration, callback, user consent; consumers endpoint selected automatically</td>
 </tr>
 <tr>
-<td>SFTP — SSH private key</td>
-<td>Host, port, SSH username, directory, known_hosts file, private-key path and optional key passphrase</td>
+<td>OneDrive Personal</td>
+<td>Device code</td>
+<td>Public-client-enabled registration/client ID; approve Microsoft’s code, then Complete sign-in; no callback/client secret for this flow</td>
 </tr>
 <tr>
-<td>SFTP — SSH password</td>
-<td>Host, port, SSH username, directory, known_hosts file and password</td>
+<td>OneDrive Personal</td>
+<td>Imported OAuth grant</td>
+<td>Access token/expiry; matching client registration and refresh token for unattended renewal</td>
+</tr>
+<tr>
+<td>OneDrive for Business / SharePoint</td>
+<td>Browser or device code</td>
+<td>Business registration/client ID, user consent, tenant; browser Web client secret/callback or device public-client configuration</td>
+</tr>
+<tr>
+<td>OneDrive for Business / SharePoint</td>
+<td>Application client secret</td>
+<td>Specific tenant GUID/domain, client ID/secret, Graph application permissions and admin consent; drive or site ID</td>
+</tr>
+<tr>
+<td>OneDrive for Business / SharePoint</td>
+<td>Application certificate</td>
+<td>Specific tenant, client ID, registered certificate PEM, matching RSA private-key PEM and optional passphrase; drive or site ID</td>
+</tr>
+<tr>
+<td>OneDrive for Business / SharePoint</td>
+<td>Workload federation</td>
+<td>Specific tenant/client ID, private rotating OIDC token-file path, matching Entra federated trust; drive or site ID</td>
+</tr>
+<tr>
+<td>OneDrive for Business / SharePoint</td>
+<td>Managed identity</td>
+<td>Azure VM/App Service identity, Graph permissions, optional user-assigned client ID; drive or site ID</td>
+</tr>
+<tr>
+<td>OneDrive for Business / SharePoint</td>
+<td>On-Behalf-Of</td>
+<td>Tenant/client ID and confidential client secret; private upstream user-assertion file rotated by an authenticated upstream service</td>
+</tr>
+<tr>
+<td>OneDrive for Business / SharePoint</td>
+<td>Legacy ROPC</td>
+<td>Tenant/client ID, Microsoft user name/password, optional confidential-client secret; only accounts/policies that permit ROPC</td>
+</tr>
+<tr>
+<td>OneDrive for Business / SharePoint</td>
+<td>Imported OAuth grant</td>
+<td>Access token/expiry and optional offline refresh grant with matching client credentials</td>
+</tr>
+<tr>
+<td>S3-compatible</td>
+<td>SDK chain, access key or STS</td>
+<td>Existing worker role/environment/profile credentials, or access key/secret and optional STS session token</td>
+</tr>
+<tr>
+<td>SFTP</td>
+<td>SSH key or password</td>
+<td>Host/port/user/directory, verified known_hosts, key path/passphrase or password</td>
 </tr>
 </tbody>
 </table>
 
-<p>The form changes when provider/authentication selection changes. Irrelevant fields are hidden and disabled; server-side allowlists reject unrelated provider fields. Versioning/Object Lock controls are shown only for S3-compatible destinations. Secondary configuration remains optional and is disabled unless explicitly enabled.</p>
+<p>Fields change with provider and method. Application identities get new access tokens from their credentials; they do not require refresh tokens. Browser/device grants renew using refresh tokens. Imported access tokens alone expire and cannot sustain an unattended daily schedule.</p>
 
-<p>S3-compatible services such as Cloudflare R2 and Backblaze B2 normally use their scoped S3 access keys and endpoint. S3 requests use request signing, not a universal browser OAuth login. The default AWS SDK chain can use supported role, environment, profile, web-identity or other SDK credential sources already provisioned for the service account; this is not an interactive plugin sign-in flow.</p>
-
-<h2 id="authentication-label-Google+Drive+setup"><a href="#authentication-label-Google+Drive+setup">Google Drive setup</a></h2>
+<h2 id="authentication-label-Google+setup"><a href="#authentication-label-Google+setup">Google setup</a></h2>
 <ol><li>
-<p>In Google Cloud, create/select a project, enable the Drive API and configure the OAuth consent screen. If the application is in testing, add the account that will connect as a test user. Review Google’s testing/refresh-token lifetime rules before relying on unattended backups.</p>
+<p>Enable the Drive API in the Google Cloud project.</p>
 </li><li>
-<p>Create an OAuth client of type Web application. Register exactly the HTTPS callback displayed on the plugin page, including any Redmine relative root.</p>
+<p>For personal/Workspace browser login, create a Web application OAuth client and register exactly the callback shown in Redmine. Configure consent-screen audience/test users and review Google’s Testing-mode refresh-token lifetime restrictions. Select Browser sign-in, enter the client ID/secret and Save settings and connect storage account.</p>
 </li><li>
-<p>Select Google Drive and Browser Sign-in in Redmine. Enter the client ID and Web client secret. Leave destination folder ID blank to create an application-accessible Redmine Backups folder after consent, or supply a folder already authorized for the application.</p>
+<p>The scope is <code>https://www.googleapis.com/auth/drive.file</code> with offline access. Leave folder ID blank to create an application-accessible Redmine Backups folder. An arbitrary preexisting folder ID does not itself authorize the application to use that folder.</p>
 </li><li>
-<p>Click Save Settings and Connect Storage Account. Choose the Google account, review the requested access, and consent. The callback verifies administrator/session/state/expiry, exchanges the code using the PKCE verifier and stores the refresh grant encrypted in private control storage.</p>
+<p>For a service account, paste its private JSON in the write-only field and add that identity to the intended Shared Drive. Supply the Shared Drive ID to create Redmine Backups there, or an existing folder ID within it. Requests use Shared Drive API flags and folder checks. Service accounts cannot own personal My Drive files and have no personal storage quota.</p>
 </li><li>
-<p>Confirm Connected and the destination folder ID, run Check Setup, then validate a backup/upload before enabling the schedule.</p>
+<p>For Workspace domain-wide delegation, authorize the service account’s client ID and Drive scope in Workspace administration and enter the exact user to impersonate. The signed assertion contains that user as its subject. This does not impersonate personal Gmail accounts.</p>
+</li><li>
+<p>Connect, Check setup, perform a real upload/read-back and restore drill before relying on scheduled protection.</p>
 </li></ol>
 
-<p>Scope is <code>https://www.googleapis.com/auth/drive.file</code>, with offline access. It is narrower than unrestricted Drive access. Typing an arbitrary folder ID does not automatically authorize access to that folder. If in doubt, use the auto-created application folder. Workspace/Shared Drive membership, policy and storage/quota constraints require tenant-specific validation. This plugin’s current browser flow is user-delegated; a service-account/domain-delegation UI is not implemented.</p>
-
-<h2 id="authentication-label-OneDrive+setup"><a href="#authentication-label-OneDrive+setup">OneDrive setup</a></h2>
+<h2 id="authentication-label-Microsoft+setup"><a href="#authentication-label-Microsoft+setup">Microsoft setup</a></h2>
 <ol><li>
-<p>Register a Microsoft Entra Web application for the intended account audience. Configure the displayed HTTPS callback and delegated Microsoft Graph <code>Files.ReadWrite</code> permission with offline access; satisfy the tenant’s consent policy.</p>
+<p>Register an Entra application with the audience appropriate to the account. Personal OneDrive uses <code>consumers</code>; business browser/device flows default to <code>organizations</code>. App-only client-credential flows require a specific tenant GUID or verified tenant domain.</p>
 </li><li>
-<p>Create a client secret if required by the confidential Web registration. Enter client ID, secret and tenant ID in the plugin. Blank tenant defaults to <code>organizations</code>; consumer registrations may use <code>consumers</code> or <code>common</code> with the matching audience.</p>
+<p>For browser sign-in, register exactly the displayed HTTPS Web callback and configure delegated <code>Files.ReadWrite</code> for OneDrive or <code>Files.ReadWrite.All</code> for SharePoint, with offline access. Enter the confidential Web secret where required.</p>
 </li><li>
-<p>Leave folder ID blank to create Redmine Backups after consent, or select an accessible existing folder in the signed-in user’s drive.</p>
+<p>For device code, enable public-client flows in that registration. Save and connect, open the Microsoft verification link, enter the displayed user code, approve access and select Complete sign-in. The browser does not receive the private device code; it stays encrypted in control storage. Polling observes provider intervals, slow_down, expiry and settings/user binding. Resume Microsoft device sign-in on the dashboard returns to an unfinished flow. A completed grant and created folder remain encrypted if the worker is busy, so retrying does not repeat authorization or folder creation.</p>
 </li><li>
-<p>Save and Connect, select the sending storage account and grant access. The plugin stores a private refresh grant and resumes unattended access by refresh-token renewal.</p>
+<p>For application identities, grant suitable Microsoft Graph application permissions and administrator consent. Prefer narrowly scoped site grants where supported by the required APIs. Upload, listing, read-back and deletion/retention all need access; a read-only grant is insufficient. Application permissions do not grant access to personal consumer OneDrive.</p>
 </li><li>
-<p>Validate Check Setup and an actual upload. The initial adapter uses <code>/me/drive</code>; arbitrary SharePoint library routing and app-only client-credentials/certificate authentication are not implemented.</p>
+<p>Client secret mode exchanges the confidential app secret. Certificate mode signs short-lived PS256 assertions with a SHA256 certificate thumbprint; upload the matching public certificate in Entra. Private keys must be RSA, at least 2048 bits, and match a currently valid certificate.</p>
+</li><li>
+<p>Workload identity reads a fresh OIDC assertion from the configured private file on each renewal. Provision matching issuer, subject and audience in Entra. The platform, rather than the plugin, issues/rotates those assertions.</p>
+</li><li>
+<p>Managed identity works on Azure VM IMDS and Azure App Service identity endpoints. The platform must provision the identity and Graph permissions. No configurable arbitrary token endpoint is exposed. Metadata requests bypass HTTP proxies, remain on loopback/link-local HTTP endpoints, use required platform headers and never follow redirects.</p>
+</li><li>
+<p>For On-Behalf-Of, an upstream service must supply and renew a user access token whose audience is this application. ID tokens, app-only tokens and arbitrary Graph tokens are not interchangeable with that assertion. The plugin cannot manufacture a continuing upstream user session.</p>
+</li><li>
+<p>ROPC is explicitly a legacy option. It cannot complete MFA/passwordless login and fails under incompatible Conditional Access/federation policies. Do not weaken tenant policy merely to use this mode. Passwords are encrypted and never rendered back.</p>
 </li></ol>
 
-<p>Storage authorization is separate from SMTP OAuth. A tenant/client ID configured for a mail plugin does not automatically grant file-storage access. Registration/consent cannot be skipped, and end-to-end connection is not claimed until the intended provider account actually authorizes the application.</p>
+<h2 id="authentication-label-SharePoint+and+business+drive+addressing"><a href="#authentication-label-SharePoint+and+business+drive+addressing">SharePoint and business drive addressing</a></h2>
 
-<h2 id="authentication-label-OAuth+troubleshooting"><a href="#authentication-label-OAuth+troubleshooting">OAuth troubleshooting</a></h2>
+<p>Choose SharePoint document library for library storage. Enter a drive ID to select a particular document library, or a SharePoint site ID to address its default library. Drive ID takes precedence. In business delegated mode, leaving both blank uses the signed-in user’s drive. Application-only modes and SharePoint require one of these explicit destinations; they never call <code>/me</code>.</p>
+
+<p>Typical discovery endpoints, using an appropriately authorized Graph tool, are <code>GET /sites/{hostname}:/{site-path}</code> followed by <code>GET /sites/{site-id}/drives</code>. These identify site/library IDs; they do not grant access. Folder ID refers to a folder inside the selected drive, not a site or library ID. Leave it blank to create Redmine Backups after authorization.</p>
+
+<p>Folder health checks validate accessibility and type. Retention checks the configured parent folder and, when a drive ID is configured, its drive ID. Historical retries keep their captured destination; switching drives does not redirect deletion into another library.</p>
+
+<h2 id="authentication-label-Callback-2C+credentials+and+external+identity+files"><a href="#authentication-label-Callback-2C+credentials+and+external+identity+files">Callback, credentials and external identity files</a></h2>
+
+<p>Browser OAuth registrations must use the exact displayed HTTPS URL:</p>
+
+<pre>https://YOUR-REDMINE-HOST[/relative-root]/admin/backups/oauth/callback</pre>
+
+<p>Callback state is one-use, time-limited and administrator/session/settings bound. Storage registrations are independent of SMTP OAuth. Blank credential inputs preserve existing encrypted values; changing authentication identity invalidates the old cached access/refresh grant. Tokens, passwords, service-account JSON and certificate/private-key inputs never appear in public plugin settings or rendered form values.</p>
+
+<p>Workload/OBO assertion files must be readable by the worker, private on Linux (no group/other permissions), bounded in size and rotated by their owning platform/service. They are ephemeral credentials, not a portable identity system: re-provision their issuer/rotation after disaster recovery. They are not automatically added as durable archive sources; add only appropriate long-lived deployment configuration to additional backup paths. Embedded private key/secret configuration is already in the private recovery bootstrap.</p>
+
+<p>Azure App Service supplies <code>IDENTITY_ENDPOINT</code> and <code>IDENTITY_HEADER</code>; do not manually fill these on a non-Azure host. For Azure VM identities, the fixed IMDS endpoint is used. These variables must be available consistently to the web service (Connect) and supervised worker (renewal).</p>
+
+<h2 id="authentication-label-Flows+that+do+not+fit+this+web+backup+application"><a href="#authentication-label-Flows+that+do+not+fit+this+web+backup+application">Flows that do not fit this web backup application</a></h2>
 <ul><li>
-<p>Callback mismatch: copy the exact displayed callback to the provider’s Web application registration. GitHub Pages is documentation hosting, not the Redmine callback host.</p>
+<p>Google device authorization is for TVs/limited-input devices with the corresponding client type; Google’s policy requires using a client appropriate to the platform. Redmine is a web application, so a misleading Google device-login button is not provided.</p>
 </li><li>
-<p>Client credentials rejected: verify the client/application ID, secret value (not secret ID), expiry and application type.</p>
+<p>Desktop/native loopback redirects are for native clients, not this remotely hosted HTTPS web callback.</p>
 </li><li>
-<p>Expired/mismatched state: start a new Connect flow in the same administrator browser session. Completing another destination’s concurrent sign-in can replace the pending state.</p>
+<p>Implicit/browser-only token acquisition has no unattended refresh grant. Externally obtained access tokens can be imported explicitly with expiry; the plugin does not expose tokens in a URL fragment or pretend they provide permanent backup authorization.</p>
 </li><li>
-<p>Missing refresh grant: request offline access and reconnect with consent. The plugin does not claim an unattended connection from an access token alone.</p>
+<p>OAuth refresh tokens and PKCE are renewal/security mechanisms, not additional account types. Personal Google Drive is already covered by user OAuth.</p>
+</li></ul>
+
+<h2 id="authentication-label-Troubleshooting"><a href="#authentication-label-Troubleshooting">Troubleshooting</a></h2>
+<ul><li>
+<p>Callback mismatch: copy the exact Redmine callback, not the GitHub Pages documentation URL.</p>
 </li><li>
-<p>Folder access denied: use an application-authorized folder or let Connect create one; verify account/tenant policies.</p>
+<p>Invalid client: check app audience, client ID, secret expiry, certificate registration or federated trust.</p>
 </li><li>
-<p>Changing provider, client or tenant invalidates the old saved grant. Secrets remain write-only; a blank secret field preserves the configured value.</p>
+<p>Missing refresh grant: reconnect with offline consent using a matching client type.</p>
+</li><li>
+<p>Device flow pending: finish Microsoft sign-in and wait for the displayed polling interval; expired/denied codes require a new flow.</p>
+</li><li>
+<p>Shared Drive quota/folder errors: use a team-owned folder for a service account, or delegate to an authorized Workspace user.</p>
+</li><li>
+<p>Graph app-only errors: supply the correct tenant and drive/site ID; verify Graph permissions and actual site grants for every required operation.</p>
+</li><li>
+<p>Managed identity unavailable: verify Azure hosting/identity configuration; an ordinary client ID on a non-Azure server is insufficient.</p>
+</li><li>
+<p>WORKER BUSY RETRY SETTINGS: let the active backup finish, then retry; a completed device grant remains private until its pending flow expires.</p>
 </li></ul>
 
 <h2 id="authentication-label-Other+cataloged+providers"><a href="#authentication-label-Other+cataloged+providers">Other cataloged providers</a></h2>
@@ -438,6 +539,15 @@ sudo systemctl status redmine-backup-worker.service</pre>
 <p><a href="https://learn.microsoft.com/en-us/azure/storage/common/authorize-data-access">Azure data authorization</a>, <a href="https://cloud.google.com/docs/authentication/provide-credentials-adc">Google Application Default Credentials</a>.</p>
 </li><li>
 <p><a href="https://developers.dropbox.com/oauth-guide">Dropbox OAuth</a>, <a href="https://developer.box.com/guides/authentication/">Box authentication</a>, <a href="https://docs.nextcloud.com/server/latest/developer_manual/client_apis/WebDAV/basic.html">Nextcloud WebDAV</a>.</p>
+</li></ul>
+
+<p>Additional authentication references:</p>
+<ul><li>
+<p><a href="https://developers.google.com/identity/protocols/oauth2/policies">Google OAuth client policies</a>, <a href="https://developers.google.com/identity/protocols/oauth2/service-account">service-account/delegation assertions</a>, <a href="https://developers.google.com/workspace/drive/api/guides/about-shareddrives">Shared Drive storage and service-account limits</a>.</p>
+</li><li>
+<p><a href="https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-device-code">Microsoft device authorization</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-client-creds-grant-flow">client credentials</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/certificate-credentials">certificate assertions</a>.</p>
+</li><li>
+<p><a href="https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-to-use-vm-token">Managed identity VM tokens</a>, <a href="https://learn.microsoft.com/en-us/azure/app-service/overview-managed-identity">Azure App Service identity</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow">On-Behalf-Of</a>, <a href="https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth-ropc">ROPC limitations</a>.</p>
 </li></ul>
 </section>
 <section id="recovery" aria-label="Recovery"><span id="recovery-top"></span>
@@ -651,9 +761,9 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 <td>Initial adapter using direct HTTPS</td>
 </tr>
 <tr>
-<td>OneDrive</td>
+<td>OneDrive Personal / Business</td>
 <td>Microsoft Graph HTTPS API</td>
-<td>Initial adapter for signed-in <code>/me/drive</code></td>
+<td>Delegated or business application identity; explicit drive support</td>
 </tr>
 <tr>
 <td>AWS S3</td>
@@ -707,8 +817,8 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 </tr>
 <tr>
 <td>SharePoint libraries</td>
-<td>Microsoft Graph with explicit drive/library routing</td>
-<td>Future extension; not arbitrary <code>/me/drive</code> folder IDs</td>
+<td>Microsoft Graph with explicit drive/site routing</td>
+<td>Implemented; permissions, library access and live testing required</td>
 </tr>
 </tbody>
 </table>
@@ -742,7 +852,7 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 </li><li>
 <p>S3 Object Lock can be irreversible until expiry. The plugin checks existing capability and requests opt-in protection; it does not enable bucket policies, grant permissions or bypass holds. Versioning does not imply immutable protection. Old versions/provider recycle bins can outlive the configured successful-date count.</p>
 </li><li>
-<p>Provider credentials/grants can be revoked and rates/quotas vary. No provider integration is claimed as production-certified by unit mocks. OneDrive <code>/me/drive</code> is implemented; arbitrary SharePoint libraries are not. Shared Drive policies require separate testing.</p>
+<p>Provider credentials/grants can be revoked and rates/quotas vary. No provider integration is claimed as production-certified by unit mocks. Personal OneDrive uses delegated identity; business/SharePoint application access requires explicit drive/site addressing. Shared Drive and SharePoint policies require separate testing. New application private keys and device codes remain encrypted; managed-identity metadata requests are restricted to local/link-local endpoints and bypass proxies.</p>
 </li><li>
 <p>Alerts use existing Redmine delivery. Neither a dead server nor a stopped worker can send immediate native alerts; startup catch-up resumes after availability. Supervisors/organizational monitoring remain external operational responsibilities.</p>
 </li><li>
@@ -752,7 +862,7 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 <section id="implementation" aria-label="Implementation"><span id="implementation-top"></span>
 <h1 id="implementation-label-Implementation+coverage"><a href="#implementation-label-Implementation+coverage">Implementation coverage</a></h1>
 
-<p>Current native plugin version: 0.2.0. This describes source implementation, not proof of live provider authorization or a successful restore.</p>
+<p>Current native plugin version: 0.3.0. This describes source implementation, not proof of live provider authorization or a successful restore.</p>
 
 <table role="table">
 <thead>
@@ -772,7 +882,7 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 </tr>
 <tr>
 <td>Authentication</td>
-<td>Provider/method-specific inputs; Drive/OneDrive browser OAuth with PKCE and encrypted refresh grants; S3 SDK chain/static/STS; SFTP key/password</td>
+<td>Provider/method-specific inputs; Google user OAuth/service accounts/Workspace delegation; Microsoft browser/device/app secret/certificate/workload/managed/OBO/legacy ROPC; imported grants; S3 SDK chain/static/STS; SFTP key/password</td>
 </tr>
 <tr>
 <td>Database configuration</td>
@@ -816,7 +926,7 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 </tr>
 <tr>
 <td>Providers</td>
-<td>Google Drive, OneDrive <code>/me/drive</code>, SFTP, S3-compatible initial adapters</td>
+<td>Google My Drive/Shared Drives, OneDrive Personal/Business, explicit SharePoint libraries, SFTP and S3-compatible adapters</td>
 </tr>
 <tr>
 <td>Secondary</td>
@@ -853,7 +963,7 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 <ul><li>
 <p>PostgreSQL and Linux are the supported capture environment. Unit tests can run on Windows; a Windows production worker is not supported.</p>
 </li><li>
-<p>Additional Ruby-capable providers are cataloged, not implemented adapters. Shared Drive authorization requires separate tenant tests; arbitrary SharePoint library routing is not implemented.</p>
+<p>Additional Ruby-capable providers are cataloged, not implemented adapters. Shared Drive and SharePoint authorization require actual tenant/account permissions and live compatibility tests. Google limited-input device flow and native-app callbacks are not applicable to this web plugin; legacy browser access tokens are supported through explicit expiring-token import.</p>
 </li><li>
 <p>No public download or automatic production-restore endpoint. Restoration remains an administrator-controlled offline process. The helper reconstructs control state and emits reviewed non-secret settings for an explicit Rails maintenance import.</p>
 </li><li>
@@ -928,9 +1038,9 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 <section id="validation" aria-label="Validation"><span id="validation-top"></span>
 <h1 id="validation-label-Validation"><a href="#validation-label-Validation">Validation</a></h1>
 
-<p>Local result on 15 November 2026: 90 independent unit tests, 366 assertions, zero failures/errors/skips on portable Ruby 4.0.9. Ruby syntax, workflow YAML indentation, offline-document generation, JavaScript syntax and documentation-link checks passed. Provider-form regression checks cover disabled irrelevant inputs, authentication changes and optional secondary storage. Adapter tests assert the selected S3/STS and SFTP key/password authentication options without contacting providers. RDoc is an explicit standalone test/documentation dependency and is not injected into Redmine’s production dependency set.</p>
+<p>Local result on 15 November 2026: 138 independent unit tests, 531 assertions, zero failures/errors/skips on portable Ruby 4.0.9. Ruby syntax, workflow YAML indentation, offline-document generation, JavaScript syntax and documentation-link checks passed. Provider-form regression checks cover disabled irrelevant inputs, authentication changes and optional secondary storage. Adapter tests cover Google service-account/delegation RS256 assertions, Microsoft PS256 certificate assertions, OAuth renewal, client secrets, rotating workload/OBO assertion files, managed-identity endpoint constraints, legacy ROPC, imported-token expiry, explicit SharePoint drive routing and S3/SFTP options without contacting providers. Device tests cover user/settings binding, polling intervals, encrypted pending state, replay rejection and busy-worker retry without duplicate folder creation. RDoc is an explicit standalone test/documentation dependency and is not injected into Redmine’s production dependency set.</p>
 
-<p>The <a href="https://github.com/KrishnaST/redmine-backup-plugin/actions/workflows/test.yml">current CI workflow</a> runs the unit suite on Ruby 3.3, 3.4 and 4.0 and an isolated Redmine/PostgreSQL integration job. The integration cases cover administrator authorization, homepage privacy, provider form rendering, one-click save/connect, state-checked encrypted OAuth callback persistence/replay protection, settings persistence, native test-mail delivery, an actual exported snapshot/database dump, referenced attachment capture and production-style eager loading. CI results are attached to the current repository history rather than obsolete rewritten commit links.</p>
+<p>The <a href="https://github.com/KrishnaST/redmine-backup-plugin/actions/workflows/test.yml">current CI workflow</a> runs the unit suite on Ruby 3.3, 3.4 and 4.0 and an isolated Redmine/PostgreSQL integration job. The integration cases include administrator authorization, homepage privacy, new provider form rendering and private device-grant persistence, one-click save/connect, state-checked encrypted OAuth callback persistence/replay protection, settings persistence, native test-mail delivery, an actual exported snapshot/database dump, referenced attachment capture and production-style eager loading. CI results are attached to the current repository history rather than obsolete rewritten commit links.</p>
 
 <p>The CI PostgreSQL client wrappers use the isolated test container’s matching binaries. They are test infrastructure only and are not installed or required by the production plugin. Native mail uses the in-memory test delivery transport; it sends no external email.</p>
 
@@ -946,9 +1056,11 @@ pg_restore --list /private/staging/database.dump &gt;/dev/null</pre>
 
 <p>The GitHub workflow runs unit tests on Ruby 3.3, 3.4 and 4.0, then prepares a disposable Redmine 7.0.2/PostgreSQL 18 installation for route/admin/settings/native-mail and real capture integration. It creates only a dedicated <code>_test</code> database. The integration entry point refuses non-test environments/databases. It does not contact any production server or cloud account.</p>
 
-<p>Installed-instance verification on 15 November 2026 used Redmine 7.0.2, Rails 8.1.4, Ruby 4.0.9 and PostgreSQL 18.7. Production eager loading passed after correcting the provider namespace path; this behavior now has an integration regression test. Both Redmine and its enabled backup worker are running. Existing locked gem versions were compared before/after and remained unchanged. The local store is mode 0700, control files are mode 0600 and the worker heartbeat is healthy. The public login returns 200 and anonymous backup administration redirects to login. A normal administrator HTTPS sign-in successfully rendered the backup page with HTTP 200 and the expected retention/secondary controls.</p>
+<p>Historical version 0.2.0 installed-instance verification on 15 November 2026 used Redmine 7.0.2, Rails 8.1.4, Ruby 4.0.9 and PostgreSQL 18.7. Production eager loading passed after correcting the provider namespace path; this behavior now has an integration regression test. Both Redmine and its enabled backup worker are running. Existing locked gem versions were compared before/after and remained unchanged. The local store is mode 0700, control files are mode 0600 and the worker heartbeat is healthy. The public login returns 200 and anonymous backup administration redirects to login. A normal administrator HTTPS sign-in successfully rendered the backup page with HTTP 200 and the expected retention/secondary controls.</p>
 
-<p>Backup scheduling and the optional secondary remain disabled. Storage authorization and alert recipients are not configured. No production backup, cloud upload, operational notification or full restore drill was performed by deploying the plugin.</p>
+<p>Version 0.3.0 adds Redmine controller/view integration cases for private device authorization and new credential fields. A disposable native Redmine/PostgreSQL test environment is not available on the maintainer workstation; these cases run in the repository CI workflow. Verify its result for the exact deployed commit, then run the installed-instance checks. The prior version’s successful integration/installed-instance results are historical evidence rather than proof of a newer deployment.</p>
+
+<p>No real Google/Microsoft account was authorized and no live cloud upload or full restore drill was performed in this implementation. Provider consent, app permissions, credential rotation and actual tenant/library compatibility remain installation validation. Scheduling/recipient settings on an existing installation must be preserved; disabled scheduling and optional secondary are initial defaults, not a claim about an administrator’s current settings.</p>
 </section>
 <section id="reference" aria-label="References"><span id="reference-top"></span>
 <h1 id="reference-label-Authentic+source+and+API+references"><a href="#reference-label-Authentic+source+and+API+references">Authentic source and API references</a></h1>

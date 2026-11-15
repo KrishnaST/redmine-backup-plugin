@@ -21,14 +21,36 @@ class BackupOauthController < ApplicationController
     raise RedmineBackup::Error, 'INVALID_OR_EXPIRED_OAUTH_STATE' unless valid
     raise RedmineBackup::Error, 'AUTHORIZATION_NOT_GRANTED' if params[:error].present? || params[:code].blank?
     runtime = RedmineBackup::Runtime.new
+    raise RedmineBackup::Error, 'RECOVERY_MODE_REQUIRES_ACTIVATION' if runtime.recovery?
     raise RedmineBackup::Error, 'DESTINATION_DISABLED' unless runtime.config.destinations.key?(data.fetch('slot'))
     target = runtime.config[data.fetch('slot')]
     raise RedmineBackup::Error, 'SETTINGS_CHANGED_RECONNECT' unless RedmineBackup::Configuration.fingerprint(target) == data.fetch('fingerprint')
-    connected = RedmineBackup::OauthService.new.exchange(target, code: params[:code], verifier: data.fetch('verifier'), redirect_uri: backup_callback_url)
-    values = runtime.config.values
-    values[data['slot']] = connected
-    runtime.save!(values, actor: User.current.id.to_s)
+    RedmineBackup::CloudConnectionService.new(runtime, actor: User.current.id.to_s).complete_browser(
+      data.fetch('slot'), code: params[:code], verifier: data.fetch('verifier'), redirect_uri: backup_callback_url
+    )
     flash[:notice] = 'Storage account connected. Its refresh grant is stored privately; run Check setup before enabling scheduling.'
+    redirect_to redmine_backups_path
+  rescue StandardError => error
+    flash[:error] = safe_oauth_error(error)
+    redirect_to redmine_backups_path
+  end
+
+  def device
+    runtime = RedmineBackup::Runtime.new
+    service = RedmineBackup::DeviceAuthorizationSessionService.new(runtime, user_id: User.current.id)
+    render_device_authorization(service.status(session[:backup_device]))
+  rescue StandardError => error
+    flash[:error] = safe_oauth_error(error)
+    redirect_to redmine_backups_path
+  end
+
+  def poll_device
+    runtime = RedmineBackup::Runtime.new
+    service = RedmineBackup::DeviceAuthorizationSessionService.new(runtime, user_id: User.current.id)
+    result = service.poll(session[:backup_device])
+    return render_device_authorization(result.fetch('display')) unless result['connected']
+    session.delete(:backup_device)
+    flash[:notice] = 'Microsoft storage account connected. Its refresh grant is stored privately.'
     redirect_to redmine_backups_path
   rescue StandardError => error
     flash[:error] = safe_oauth_error(error)

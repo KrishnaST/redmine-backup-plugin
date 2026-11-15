@@ -1,0 +1,64 @@
+<div class="backup-provider-fields" data-providers="google_drive">
+  <p><label>Google account type</label><%= select_tag "backup[#{slot}][account_type]", options_for_select([['Personal Google Account — Gmail or other email', 'personal'], ['Google Workspace / Shared Drive', 'workspace']], target.fetch('account_type', 'personal')) %></p>
+  <p class="backup-hint">Personal Google Drive uses Browser sign-in. No separate personal authentication protocol is needed. Service accounts have no personal Drive quota; use a Shared Drive or Workspace delegation.</p>
+  <p><label>Shared Drive ID (optional)</label><%= text_field_tag "backup[#{slot}][shared_drive_id]", target['shared_drive_id'], size: 65 %></p>
+</div>
+<div class="backup-provider-fields" data-providers="google_drive onedrive onedrive_personal sharepoint" data-methods="oauth2 device_code client_secret certificate workload_identity managed_identity on_behalf_of password_grant imported_token">
+  <p><label>Application / OAuth client ID</label><%= text_field_tag "backup[#{slot}][client_id]", target['client_id'], size: 65 %></p>
+</div>
+<div class="backup-provider-fields" data-providers="google_drive onedrive onedrive_personal sharepoint" data-methods="oauth2 client_secret on_behalf_of password_grant imported_token">
+  <p><label>Client secret</label><%= password_field_tag "backup[#{slot}][client_secret]", '', autocomplete: 'new-password', placeholder: target['client_secret'].present? ? 'Configured — blank preserves value' : 'Required for confidential Web applications', size: 65 %></p>
+</div>
+<div class="backup-provider-fields" data-providers="google_drive onedrive onedrive_personal sharepoint" data-methods="oauth2">
+  <p><label>Registered HTTPS callback</label><%= text_field_tag "#{slot}_callback", @callback_url || 'Configure the Redmine HTTPS host first', readonly: true, size: 85 %></p>
+</div>
+<div class="backup-provider-fields" data-providers="onedrive sharepoint">
+  <p><label>Microsoft tenant ID / domain</label><%= text_field_tag "backup[#{slot}][tenant_id]", target['tenant_id'], placeholder: 'Tenant GUID or verified domain; browser default: organizations', size: 65 %></p>
+  <p><label>Drive / document library ID</label><%= text_field_tag "backup[#{slot}][drive_id]", target['drive_id'], size: 65 %></p>
+  <p><label>SharePoint site ID</label><%= text_field_tag "backup[#{slot}][site_id]", target['site_id'], size: 65 %></p>
+  <p class="backup-hint">Application identities require a drive ID or site ID. A site ID selects its default library; a drive ID selects a specific library and takes precedence. Grant only the required site/library permissions in Microsoft 365.</p>
+</div>
+<div class="backup-provider-fields" data-providers="onedrive_personal">
+  <p class="backup-hint">Uses Microsoft's consumers endpoint. Register the application for personal Microsoft accounts. Application-only identities are not available for personal OneDrive.</p>
+</div>
+<div class="backup-provider-fields" data-providers="google_drive" data-methods="service_account domain_delegation">
+  <p><label>Service-account JSON</label><%= text_area_tag "backup[#{slot}][service_account_json]", '', rows: 4, cols: 75, autocomplete: 'off', spellcheck: false, placeholder: target['service_account_json'].present? ? 'Configured — blank preserves private JSON' : 'Paste the service-account JSON private key; stored encrypted' %></p>
+</div>
+<div class="backup-provider-fields" data-providers="google_drive" data-methods="domain_delegation">
+  <p><label>Workspace user to impersonate</label><%= text_field_tag "backup[#{slot}][impersonated_user]", target['impersonated_user'], size: 65 %></p>
+  <p class="backup-hint">A Workspace administrator must authorize domain-wide delegation for this service account and Drive scope. This option cannot impersonate a personal Gmail account.</p>
+</div>
+<div class="backup-provider-fields" data-providers="onedrive sharepoint" data-methods="certificate">
+  <p><label>Certificate PEM</label><%= text_area_tag "backup[#{slot}][certificate_pem]", '', rows: 4, cols: 75, autocomplete: 'off', spellcheck: false, placeholder: target['certificate_pem'].present? ? 'Configured — blank preserves certificate' : 'Paste the certificate registered in Entra' %></p>
+  <p><label>Private key PEM</label><%= text_area_tag "backup[#{slot}][private_key]", '', rows: 4, cols: 75, autocomplete: 'off', spellcheck: false, placeholder: target['private_key'].present? ? 'Configured — blank preserves private key' : 'Paste its RSA private key (2048 bits or stronger)' %></p>
+  <p><label>Private-key passphrase</label><%= password_field_tag "backup[#{slot}][key_passphrase]", '', autocomplete: 'new-password', size: 65 %></p>
+</div>
+<div class="backup-provider-fields" data-providers="onedrive sharepoint" data-methods="workload_identity">
+  <p><label>Federated OIDC token file</label><%= text_field_tag "backup[#{slot}][federated_token_path]", target['federated_token_path'], size: 75 %></p>
+  <p class="backup-hint">The hosting platform must rotate this private token file. Configure the matching issuer, subject and audience in the application's Entra federated credential. The file is reread whenever credentials renew.</p>
+</div>
+<div class="backup-provider-fields" data-providers="onedrive sharepoint" data-methods="managed_identity">
+  <p class="backup-hint">Leave client ID blank for the system-assigned identity or enter the user-assigned identity's client ID.</p>
+  <p class="backup-hint">Requires a configured Azure VM or Azure App Service identity with Microsoft Graph application permissions. It cannot be activated by entering an ordinary server's client ID.</p>
+</div>
+<div class="backup-provider-fields" data-providers="onedrive sharepoint" data-methods="on_behalf_of">
+  <p><label>Upstream user assertion file</label><%= text_field_tag "backup[#{slot}][user_assertion_path]", target['user_assertion_path'], size: 75 %></p>
+  <p class="backup-hint">An upstream authenticated service must supply and rotate an access token issued for this application. An arbitrary Graph access token or ID token cannot be used as the assertion.</p>
+</div>
+<div class="backup-provider-fields" data-providers="onedrive sharepoint" data-methods="password_grant">
+  <p><label>Microsoft user sign-in name</label><%= text_field_tag "backup[#{slot}][username]", target['username'], size: 65 %></p>
+  <p><label>Microsoft user password</label><%= password_field_tag "backup[#{slot}][password]", '', autocomplete: 'new-password', size: 65 %></p>
+  <p class="backup-warning">Legacy ROPC cannot satisfy MFA, passwordless sign-in or many federation/Conditional Access policies. Prefer browser/device sign-in or an application identity. Passwords are stored encrypted and never displayed.</p>
+</div>
+<div class="backup-provider-fields" data-providers="google_drive onedrive onedrive_personal sharepoint" data-methods="imported_token">
+  <p><label>Existing access token</label><%= password_field_tag "backup[#{slot}][access_token]", '', autocomplete: 'new-password', size: 65 %></p>
+  <p><label>Existing refresh token (optional)</label><%= password_field_tag "backup[#{slot}][refresh_token]", '', autocomplete: 'new-password', size: 65 %></p>
+  <p><label>Access-token expiry (Unix seconds)</label><%= number_field_tag "backup[#{slot}][expires_at]", nil, placeholder: 'Expiry supplied by the original authorization response' %></p>
+  <p class="backup-warning">For externally acquired grants, including legacy browser access tokens. Access tokens alone stop working when they expire. Automatic renewal requires a valid refresh token and matching client credentials.</p>
+</div>
+<div class="backup-provider-fields" data-providers="google_drive onedrive onedrive_personal sharepoint">
+  <p><label>Destination folder ID</label><%= text_field_tag "backup[#{slot}][folder_id]", target['folder_id'], size: 65 %></p>
+  <p class="backup-hint">Leave blank to create Redmine Backups in the selected drive after authorization. For a Google service account, provide a Shared Drive ID or an existing folder in a Shared Drive.</p>
+  <p><label>Saved refresh grant</label><strong><%= target['refresh_token'].present? ? 'Present — stored privately' : 'None (application identities obtain their own tokens)' %></strong></p>
+  <p><%= button_tag 'Save settings and connect storage account', name: 'connect_slot', value: slot, type: 'submit' %> <%= link_to 'Authentication guide', 'https://krishnast.github.io/redmine-backup-plugin/#authentication', target: '_blank', rel: 'noopener' %></p>
+</div>

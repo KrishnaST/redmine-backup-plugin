@@ -29,11 +29,11 @@ Register a Web OAuth client with the callback shown below. Enter client ID and W
 
 The adapter uses resumable upload sessions. Shared Drive authorization and tenant-specific behavior require a live compatibility test; do not assume consumer Drive behavior proves Shared Drive support. Reconnect through the same slot if an expired/revoked grant prevents refresh.
 
-## OneDrive
+## OneDrive and SharePoint
 
 Register a Microsoft Entra HTTPS Web application with delegated `Files.ReadWrite` and offline access. Enter client ID, tenant ID (blank means organizations) and Web client secret. Click **Save settings and connect storage account** for browser sign-in with S256 PKCE. Leave folder ID blank to create **Redmine Backups** after consent. Microsoft consumer accounts may need `consumers` or `common` and a matching registration audience.
 
-The initial adapter addresses the signed-in user's `/me/drive`. SharePoint document-library routing is a future adapter extension, not implemented by accepting an arbitrary SharePoint folder ID. Upload sessions and preauthenticated downloads are stored privately; Graph bearer tokens are not forwarded to signed download hosts.
+Choose OneDrive Personal, OneDrive for Business or SharePoint document library explicitly. Personal uses the consumers audience. Business/SharePoint support delegated and application identities; configure a drive or site ID for application access. A site selects its default library; drive ID selects a particular library and takes precedence. See [all authentication methods](AUTHENTICATION.md). Upload sessions and preauthenticated downloads are stored privately; Graph bearer tokens are not forwarded to signed download hosts.
 
 For both OAuth providers register exactly:
 

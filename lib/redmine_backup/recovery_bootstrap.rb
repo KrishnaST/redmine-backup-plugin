@@ -28,7 +28,7 @@ module RedmineBackup
       store.atomic(File.join(root, 'control', 'RECOVERY'), 'Activation required')
       settings = bootstrap.fetch('config').merge('enabled' => false, 'recovery_mode' => true, 'local_directory' => root)
       %w[primary secondary].each do |slot|
-        settings[slot] = settings.fetch(slot, {}).reject { |key_name, _| %w[password private_key key_passphrase client_secret secret_access_key session_token access_token refresh_token expires_at].include?(key_name) }
+        settings[slot] = settings.fetch(slot, {}).reject { |key_name, _| %w[password private_key key_passphrase client_secret secret_access_key session_token access_token refresh_token expires_at service_account_json certificate_pem].include?(key_name) }
       end
       store.atomic(File.join(root, 'restored-plugin-settings.json'), JSON.pretty_generate(settings))
       store.audit('offline_bootstrap_restored')

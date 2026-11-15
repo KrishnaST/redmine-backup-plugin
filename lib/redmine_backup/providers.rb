@@ -12,7 +12,7 @@ module RedmineBackup
       case target.fetch('provider')
       when 's3' then S3.new(target, checkpoint: checkpoint)
       when 'sftp' then Sftp.new(target, checkpoint: checkpoint)
-      when 'google_drive', 'onedrive' then CloudDrive.new(target, checkpoint: checkpoint)
+      when 'google_drive', 'onedrive', 'onedrive_personal', 'sharepoint' then CloudDrive.new(target, checkpoint: checkpoint)
       else raise Error, 'UNSUPPORTED_PROVIDER'
       end
     end

@@ -1,0 +1,10 @@
+<h2>Connect Microsoft storage</h2>
+<div class="box">
+  <p>Open <%= link_to 'Microsoft device sign-in', @device['verification_uri'], target: '_blank', rel: 'noopener noreferrer' %> and enter this code:</p>
+  <p><strong><%= @device['user_code'] %></strong></p>
+  <p>Sign in to the storage account and approve access. Then select Complete sign-in below. The code expires at <%= Time.at(@device['expires_at']).utc.iso8601 %>.</p>
+  <p>If approval is still pending, wait at least <%= @device['interval'] %> seconds before checking again.</p>
+  <p>You can return to backup settings and resume this sign-in while the code remains valid.</p>
+  <%= form_tag redmine_backup_device_poll_path do %><%= submit_tag 'Complete sign-in' %><% end %>
+</div>
+<%= link_to 'Back to backup settings', redmine_backups_path %>

@@ -12,7 +12,7 @@ module RedmineBackup
       'recovery_mode' => false, 'primary' => { 'provider' => 'google_drive' },
       'secondary' => { 'enabled' => false, 'mode' => '', 'provider' => '' }
     }.freeze
-    PROVIDERS = %w[google_drive onedrive sftp s3].freeze
+    PROVIDERS = %w[google_drive onedrive onedrive_personal sharepoint sftp s3].freeze
 
     attr_reader :values
 
@@ -39,6 +39,7 @@ module RedmineBackup
         raise Error, 'INVALID_PROVIDER' unless PROVIDERS.include?(target['provider'])
         authentication = ProviderSettingsService.authentication(target)
         raise Error, 'AUTHENTICATION_METHOD_NOT_SUPPORTED' unless ProviderSettingsService::METHODS.fetch(target['provider']).include?(authentication)
+        CloudIdentity.validate!(target) if CloudIdentity::PROVIDERS.include?(target['provider'])
         if slot == 'secondary' && !%w[redundant failover].include?(target['mode'])
           raise Error, 'SECONDARY_MODE_REQUIRED'
         end
@@ -64,7 +65,7 @@ module RedmineBackup
     end
 
     def self.fingerprint(target)
-      public_target = target.slice(*%w[provider endpoint region bucket prefix host port username directory client_id tenant_id folder_id])
+      public_target = target.slice(*%w[provider auth_method endpoint region bucket prefix host port username directory client_id tenant_id folder_id shared_drive_id drive_id site_id impersonated_user])
       Digest::SHA256.hexdigest(JSON.generate(public_target.sort.to_h))
     end
 

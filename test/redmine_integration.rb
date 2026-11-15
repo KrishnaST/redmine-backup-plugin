@@ -146,6 +146,58 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     assert_includes message.text_part.body.decoded, 'TEST NOTIFICATION'
   end
 
+  def test_service_account_configuration_and_certificate_fields_are_never_rendered_back
+    assert_includes Rails.application.config.filter_parameters, :backup
+    sign_in
+    post '/admin/backups/settings', params: { backup: { primary: { provider: 'google_drive', account_type: 'workspace',
+                                                                 auth_method: 'service_account', service_account_json: 'private-json-fixture' } } }
+    assert_response :redirect
+    refute_includes Setting.plugin_redmine_backup_plugin.to_json, 'private-json-fixture'
+    assert_equal 'private-json-fixture', RedmineBackup::Runtime.new.config['primary']['service_account_json']
+    get '/admin/backups'
+    assert_response :success
+    assert_includes response.body, 'OneDrive Personal'
+    assert_includes response.body, 'SharePoint document library'
+    assert_includes response.body, 'Workspace domain-wide delegation'
+    refute_includes response.body, 'private-json-fixture'
+  end
+
+  def test_device_flow_keeps_device_code_private_and_saves_refresh_grant_once
+    sign_in
+    service = Object.new
+    service.define_singleton_method(:start) do |target|
+      { 'device_code' => 'private-device-fixture', 'user_code' => 'PUBLIC-CODE', 'verification_uri' => 'https://microsoft.com/devicelogin',
+        'expires_at' => Time.now.to_i + 900, 'interval' => 5, 'next_poll_at' => Time.now.to_i,
+        'fingerprint' => RedmineBackup::Configuration.fingerprint(target) }
+    end
+    service.define_singleton_method(:poll) do |_target, pending|
+      pending.merge('grant' => { 'access_token' => 'private-access-fixture', 'refresh_token' => 'private-refresh-fixture', 'expires_at' => Time.now.to_i + 3600 })
+    end
+    RedmineBackup::DeviceAuthorizationService.stub(:new, service) do
+      post '/admin/backups/settings', params: { connect_slot: 'primary', backup: { primary: { provider: 'onedrive_personal',
+                                                                                           auth_method: 'device_code', client_id: 'device-app', folder_id: 'folder' } } }
+      assert_response :success
+      assert_includes response.body, 'PUBLIC-CODE'
+      refute_includes response.body, 'private-device-fixture'
+      runtime = RedmineBackup::Runtime.new
+      encrypted = File.binread(File.join(runtime.store.root, 'control/device_oauth.json.enc'))
+      refute_includes encrypted, 'private-device-fixture'
+      post '/admin/backups/oauth/device/poll'
+    end
+    assert_response :redirect
+    assert_equal 'private-refresh-fixture', RedmineBackup::Runtime.new.config['primary']['refresh_token']
+    refute_includes Setting.plugin_redmine_backup_plugin.to_json, 'private-refresh-fixture'
+    post '/admin/backups/oauth/device/poll'
+    follow_redirect!
+    assert_includes response.body, 'START DEVICE SIGN IN FIRST'
+  end
+
+  def test_anonymous_user_cannot_poll_private_device_authorization
+    host! 'redmine.example.test'
+    post '/admin/backups/oauth/device/poll'
+    assert_response :redirect
+  end
+
   def test_real_postgresql_snapshot_dump_and_attachment_capture
     skip 'Set BACKUP_TEST_PG_BIN to compatible PostgreSQL clients' unless ENV['BACKUP_TEST_PG_BIN']
     Attachment.storage_path = File.join(@storage, 'files')

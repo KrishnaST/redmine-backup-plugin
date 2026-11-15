@@ -1,3 +1,4 @@
+<% if session[:backup_device].present? %><p><%= link_to "Resume Microsoft device sign-in", redmine_backup_device_path %></p><% end %>
 <% html_title 'Backups' %>
 <% content_for :header_tags do %>
   <%= stylesheet_link_tag 'backups', plugin: 'redmine_backup_plugin' %>

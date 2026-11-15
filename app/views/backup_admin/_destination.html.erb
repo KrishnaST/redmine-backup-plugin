@@ -7,27 +7,29 @@
   <% end %>
   <div class="backup-destination-body">
     <% if slot == 'secondary' %><p><label>Secondary mode</label><%= select_tag 'backup[secondary][mode]', options_for_select([['Choose mode', ''], ['Redundant — both copies required', 'redundant'], ['Failover — secondary after primary failure', 'failover']], target['mode']) %></p><% end %>
-    <p><label>Storage provider</label><%= select_tag "backup[#{slot}][provider]", options_for_select([['Google Drive', 'google_drive'], ['OneDrive', 'onedrive'], ['SFTP', 'sftp'], ['S3 compatible', 's3']], target['provider']), class: 'backup-provider' %></p>
+    <p><label>Storage provider</label><%= select_tag "backup[#{slot}][provider]", options_for_select([['Google Drive — Personal / Workspace', 'google_drive'], ['OneDrive Personal', 'onedrive_personal'], ['OneDrive for Business', 'onedrive'], ['SharePoint document library', 'sharepoint'], ['SFTP', 'sftp'], ['S3 compatible', 's3']], target['provider']), class: 'backup-provider' %></p>
     <p><label>Authentication</label>
       <select name="backup[<%= slot %>][auth_method]" class="backup-authentication">
-        <% [['Browser sign-in — OAuth 2.0 + PKCE', 'oauth2', 'google_drive onedrive'], ['SSH private key', 'ssh_key', 'sftp'], ['SSH password', 'password', 'sftp'], ['IAM role / default SDK credential chain', 'sdk_chain', 's3'], ['Access key and secret', 'access_key', 's3'], ['Temporary credentials — STS', 'session_token', 's3']].each do |label, value, providers| %>
+        <% [['Browser sign-in — OAuth 2.0 + PKCE', 'oauth2', 'google_drive onedrive onedrive_personal sharepoint'],
+            ['Microsoft device-code sign-in', 'device_code', 'onedrive onedrive_personal sharepoint'],
+            ['Google service account — Shared Drive', 'service_account', 'google_drive'],
+            ['Google Workspace domain-wide delegation', 'domain_delegation', 'google_drive'],
+            ['Application — client secret', 'client_secret', 'onedrive sharepoint'],
+            ['Application — certificate', 'certificate', 'onedrive sharepoint'],
+            ['Application — federated workload identity', 'workload_identity', 'onedrive sharepoint'],
+            ['Azure managed identity', 'managed_identity', 'onedrive sharepoint'],
+            ['On-Behalf-Of — upstream user assertion', 'on_behalf_of', 'onedrive sharepoint'],
+            ['Legacy username/password — ROPC', 'password_grant', 'onedrive sharepoint'],
+            ['Import existing OAuth tokens — advanced', 'imported_token', 'google_drive onedrive onedrive_personal sharepoint'],
+            ['SSH private key', 'ssh_key', 'sftp'], ['SSH password', 'password', 'sftp'],
+            ['IAM role / default SDK credential chain', 'sdk_chain', 's3'], ['Access key and secret', 'access_key', 's3'],
+            ['Temporary credentials — STS', 'session_token', 's3']].each do |label, value, providers| %>
           <option value="<%= value %>" data-providers="<%= providers %>" <%= value == method ? 'selected' : '' %>><%= label %></option>
         <% end %>
       </select>
     </p>
     <p><label>Remote dates to keep<br>(blank inherits default)</label><%= number_field_tag "backup[#{slot}][remote_keep_dates]", target['remote_keep_dates'], min: 1, max: 3650 %></p>
-    <div class="backup-provider-fields" data-providers="google_drive onedrive">
-      <p><label>OAuth client ID</label><%= text_field_tag "backup[#{slot}][client_id]", target['client_id'], size: 65 %></p>
-      <p><label>OAuth client secret</label><%= password_field_tag "backup[#{slot}][client_secret]", '', autocomplete: 'new-password', placeholder: target['client_secret'].present? ? 'Configured — blank preserves value' : 'Required for confidential Web applications', size: 65 %></p>
-      <p><label>Registered HTTPS callback</label><%= text_field_tag "#{slot}_callback", @callback_url || 'Configure the Redmine HTTPS host first', readonly: true, size: 85 %></p>
-      <p><label>Destination folder ID</label><%= text_field_tag "backup[#{slot}][folder_id]", target['folder_id'], size: 65 %></p>
-      <p class="backup-hint">Leave the folder ID blank to create a Redmine Backups folder after authorization. App registration is required; see the <%= link_to 'provider setup guide', 'https://krishnast.github.io/redmine-backup-plugin/#authentication', target: '_blank', rel: 'noopener' %>.</p>
-      <p><label>Connection status</label><strong><%= target['refresh_token'].present? ? 'Connected — private refresh grant saved' : 'Not connected' %></strong></p>
-      <p><%= button_tag 'Save settings and connect storage account', name: 'connect_slot', value: slot, type: 'submit' %></p>
-    </div>
-    <div class="backup-provider-fields" data-providers="onedrive">
-      <p><label>Microsoft tenant ID</label><%= text_field_tag "backup[#{slot}][tenant_id]", target['tenant_id'], placeholder: 'organizations', size: 65 %></p>
-    </div>
+    <%= render partial: 'cloud_destination', locals: { slot: slot, target: target } %>
     <div class="backup-provider-fields" data-providers="s3">
       <% { 'endpoint' => 'HTTPS endpoint (blank for AWS)', 'region' => 'Region', 'bucket' => 'Bucket', 'prefix' => 'Key prefix' }.each do |key, label| %><p><label><%= label %></label><%= text_field_tag "backup[#{slot}][#{key}]", target[key], size: 65 %></p><% end %>
       <p class="backup-hint">IAM/default-chain mode uses credentials already available to the worker. R2 and B2 normally use their S3 endpoint and scoped access keys; S3 does not use a browser OAuth login.</p>

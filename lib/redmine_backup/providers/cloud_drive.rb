@@ -59,8 +59,9 @@ module RedmineBackup
 
       def health!
         super
-        url = google? ? 'https://www.googleapis.com/drive/v3/about?fields=user' : 'https://graph.microsoft.com/v1.0/me/drive'
+        url = google? ? 'https://www.googleapis.com/drive/v3/about?fields=user' : graph_base
         @http.json!(@http.request('get', url, headers: authorization))
+        check_folder! unless target['folder_id'].to_s.empty?
         true
       end
 
@@ -112,7 +113,7 @@ module RedmineBackup
 
       def stream(reference, redirects = 0, &block)
         id = URI.encode_www_form_component(reference.fetch('id'))
-        url = google? ? "https://www.googleapis.com/drive/v3/files/#{id}?alt=media" : "https://graph.microsoft.com/v1.0/me/drive/items/#{id}/content"
+        url = google? ? "https://www.googleapis.com/drive/v3/files/#{id}?alt=media&supportsAllDrives=true" : "#{graph_base}/items/#{id}/content"
         response = @http.request('get', url, headers: authorization, &block)
         if [301, 302, 303, 307, 308].include?(response.code.to_i)
           raise Error, 'TOO_MANY_REDIRECTS' if redirects >= 1
@@ -129,10 +130,12 @@ module RedmineBackup
           folder = target.fetch('folder_id')
           raise Error, 'INVALID_DRIVE_FOLDER' unless folder.match?(/\A[a-zA-Z0-9_-]+\z/)
           query = "'#{folder}' in parents and trashed = false and name contains '#{prefix}'"
-          url = "https://www.googleapis.com/drive/v3/files?#{URI.encode_www_form(q: query, fields: 'files(id,name),nextPageToken', pageSize: 1000)}"
+          parameters = { q: query, fields: 'files(id,name),nextPageToken', pageSize: 1000, supportsAllDrives: true, includeItemsFromAllDrives: true }
+          parameters.merge!(corpora: 'drive', driveId: target['shared_drive_id']) unless target['shared_drive_id'].to_s.empty?
+          url = "https://www.googleapis.com/drive/v3/files?#{URI.encode_www_form(parameters)}"
         else
           folder = URI.encode_www_form_component(target.fetch('folder_id'))
-          url = "https://graph.microsoft.com/v1.0/me/drive/items/#{folder}/children?$select=id,name&$top=200"
+          url = "#{graph_base}/items/#{folder}/children?$select=id,name&$top=200"
         end
         result = []
         while url
@@ -141,7 +144,7 @@ module RedmineBackup
           result.concat(items.filter_map { |item| { 'id' => item['id'] } if item['name'].start_with?(prefix) && item['name'].end_with?('-complete.json') })
           url = response['@odata.nextLink']
           if google? && response['nextPageToken']
-            url = "https://www.googleapis.com/drive/v3/files?#{URI.encode_www_form(q: query, fields: 'files(id,name),nextPageToken', pageSize: 1000, pageToken: response['nextPageToken'])}"
+            url = "https://www.googleapis.com/drive/v3/files?#{URI.encode_www_form(parameters.merge(pageToken: response['nextPageToken']))}"
           end
         end
         result
@@ -149,23 +152,42 @@ module RedmineBackup
 
       def delete(reference)
         id = URI.encode_www_form_component(reference.fetch('id'))
-        url = google? ? "https://www.googleapis.com/drive/v3/files/#{id}" : "https://graph.microsoft.com/v1.0/me/drive/items/#{id}"
+        url = google? ? "https://www.googleapis.com/drive/v3/files/#{id}?supportsAllDrives=true" : "#{graph_base}/items/#{id}"
         response = @http.request('delete', url, headers: authorization)
         raise Error, 'PROVIDER_DELETE_FAILED' unless [204, 404].include?(response.code.to_i)
       end
 
       def assert_reference!(reference, namespace)
         id = URI.encode_www_form_component(reference.fetch('id'))
-        url = google? ? "https://www.googleapis.com/drive/v3/files/#{id}?fields=name,parents" : "https://graph.microsoft.com/v1.0/me/drive/items/#{id}?$select=name,parentReference"
+        url = google? ? "https://www.googleapis.com/drive/v3/files/#{id}?fields=name,parents&supportsAllDrives=true" : "#{graph_base}/items/#{id}?$select=name,parentReference"
         item = @http.json!(@http.request('get', url, headers: authorization))
         parent_ok = google? ? item.fetch('parents', []).include?(target['folder_id']) : item.dig('parentReference', 'id') == target['folder_id']
+        parent_ok &&= item.dig('parentReference', 'driveId') == target['drive_id'] if !google? && !target['drive_id'].to_s.empty?
         raise Error, 'FOREIGN_OBJECT_REFERENCE' unless item.fetch('name').start_with?(namespace) && parent_ok
       end
 
       private
 
+      def check_folder!
+        folder = CloudLocationService.segment(target['folder_id'])
+        url = google? ? "https://www.googleapis.com/drive/v3/files/#{folder}?fields=id,mimeType,driveId&supportsAllDrives=true" : "#{graph_base}/items/#{folder}?$select=id,folder"
+        item = @http.json!(@http.request('get', url, headers: authorization))
+        valid = google? ? item['mimeType'] == 'application/vnd.google-apps.folder' : item['folder'].is_a?(Hash)
+        raise Error, 'DESTINATION_MUST_BE_ACCESSIBLE_FOLDER' unless valid
+        if google? && CloudIdentity.method(target) == 'service_account' && item['driveId'].to_s.empty?
+          raise Error, 'SERVICE_ACCOUNT_REQUIRES_SHARED_DRIVE_FOLDER'
+        end
+        if google? && !target['shared_drive_id'].to_s.empty? && item['driveId'] != target['shared_drive_id']
+          raise Error, 'FOLDER_NOT_IN_SELECTED_SHARED_DRIVE'
+        end
+      end
+
       def google?
         target['provider'] == 'google_drive'
+      end
+
+      def graph_base
+        CloudLocationService.graph_base(target)
       end
 
       def authorization
@@ -174,33 +196,22 @@ module RedmineBackup
       end
 
       def refresh!
-        endpoint = google? ? 'https://oauth2.googleapis.com/token' : "https://login.microsoftonline.com/#{tenant}/oauth2/v2.0/token"
-        form = { client_id: target.fetch('client_id'), grant_type: 'refresh_token', refresh_token: target.fetch('refresh_token') }
-        form[:client_secret] = target['client_secret'] if target['client_secret'].to_s != ''
-        data = @http.json!(@http.request('post', endpoint, headers: { 'Content-Type' => 'application/x-www-form-urlencoded' }, body: URI.encode_www_form(form)))
-        target['access_token'] = data.fetch('access_token')
-        target['refresh_token'] = data.fetch('refresh_token', target['refresh_token'])
-        target['expires_at'] = Time.now.to_i + data.fetch('expires_in').to_i
-        @checkpoint.call('oauth_tokens', target.slice('access_token', 'refresh_token', 'expires_at'))
-      end
-
-      def tenant
-        value = target['tenant_id'].to_s.empty? ? 'organizations' : target['tenant_id']
-        raise Error, 'INVALID_TENANT' unless value.match?(/\A(?:organizations|common|consumers|[a-fA-F0-9-]{36})\z/)
-        value
+        tokens = CloudTokenService.new(http: @http).acquire(target, force: true)
+        target.merge!(tokens)
+        @checkpoint.call('oauth_tokens', tokens)
       end
 
       def create_session(key, size)
         if google?
           metadata = JSON.generate(name: key, parents: [target.fetch('folder_id')])
-          response = @http.request('post', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
+          response = @http.request('post', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true',
                                    headers: authorization.merge('Content-Type' => 'application/json', 'X-Upload-Content-Length' => size.to_s), body: metadata)
           raise Error, 'UPLOAD_SESSION_FAILED' unless response.code.to_i == 200
           response.fetch('location')
         else
           folder = URI.encode_www_form_component(target.fetch('folder_id'))
           name = URI.encode_www_form_component(key)
-          response = @http.request('post', "https://graph.microsoft.com/v1.0/me/drive/items/#{folder}:/#{name}:/createUploadSession",
+          response = @http.request('post', "#{graph_base}/items/#{folder}:/#{name}:/createUploadSession",
                                    headers: authorization.merge('Content-Type' => 'application/json'),
                                    body: JSON.generate(item: { '@microsoft.graph.conflictBehavior' => 'replace', name: key }))
           @http.json!(response).fetch('uploadUrl')

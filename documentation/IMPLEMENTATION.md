@@ -1,12 +1,12 @@
 # Implementation coverage
 
-Current native plugin version: 0.2.0. This describes source implementation, not proof of live provider authorization or a successful restore.
+Current native plugin version: 0.3.0. This describes source implementation, not proof of live provider authorization or a successful restore.
 
 | Requirement | Implementation |
 | --- | --- |
 | Admin UI | Administrator-only dashboard, settings, queued actions, history, health and audit |
 | Homepage | Optional administrator-only latest result, last local/remote success, worker heartbeat and schedule summary |
-| Authentication | Provider/method-specific inputs; Drive/OneDrive browser OAuth with PKCE and encrypted refresh grants; S3 SDK chain/static/STS; SFTP key/password |
+| Authentication | Provider/method-specific inputs; Google user OAuth/service accounts/Workspace delegation; Microsoft browser/device/app secret/certificate/workload/managed/OBO/legacy ROPC; imported grants; S3 SDK chain/static/STS; SFTP key/password |
 | Database configuration | Reads Redmine's resolved ActiveRecord primary configuration; no duplicate editable credentials |
 | Full daily database/files | Exported PostgreSQL read-only snapshot, custom dump, full application archive and snapshot-referenced attachments |
 | Discovery/coverage | Application and attachment roots, configured Redmine file/directory environment references, readable Redmine systemd units/environment files and additional paths; changes highlighted |
@@ -17,7 +17,7 @@ Current native plugin version: 0.2.0. This describes source implementation, not 
 | One-run lock | Kernel process lock, heartbeat and interrupted-job reconciliation |
 | Packaging | Separate components or ZIP64; retry packaging without another dump |
 | Upload retry | Existing artifact hash validation, provider checkpoints, resume where supported |
-| Providers | Google Drive, OneDrive `/me/drive`, SFTP, S3-compatible initial adapters |
+| Providers | Google My Drive/Shared Drives, OneDrive Personal/Business, explicit SharePoint libraries, SFTP and S3-compatible adapters |
 | Secondary | Optional/disabled by default; explicit Redundant or Failover |
 | Versioning/locks | Existing S3 capability checks, opt-in object protection and locked-cleanup deferral |
 | Status | Local capture/packaging, each target, protection and cleanup tracked separately |
@@ -29,7 +29,7 @@ Current native plugin version: 0.2.0. This describes source implementation, not 
 ## Deliberate initial boundaries
 
 - PostgreSQL and Linux are the supported capture environment. Unit tests can run on Windows; a Windows production worker is not supported.
-- Additional Ruby-capable providers are cataloged, not implemented adapters. Shared Drive authorization requires separate tenant tests; arbitrary SharePoint library routing is not implemented.
+- Additional Ruby-capable providers are cataloged, not implemented adapters. Shared Drive and SharePoint authorization require actual tenant/account permissions and live compatibility tests. Google limited-input device flow and native-app callbacks are not applicable to this web plugin; legacy browser access tokens are supported through explicit expiring-token import.
 - No public download or automatic production-restore endpoint. Restoration remains an administrator-controlled offline process. The helper reconstructs control state and emits reviewed non-secret settings for an explicit Rails maintenance import.
 - Previously captured full backup directories are excluded from each new full backup. Bootstrap preserves their history as historical/unavailable when restored; it does not pretend their old local payloads exist.
 - Native alerts cannot report immediately while Redmine/worker/server is down. Recovery confirmations and scheduled daily-success emails are optional/off by default. Manually pinned recovery points remain a future enhancement.

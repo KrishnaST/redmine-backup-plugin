@@ -251,7 +251,7 @@ module RedmineBackup
           target.merge!(value)
           secrets = @store.read('secrets')
           current = secrets.fetch(slot, {})
-          if @config[slot]['client_id'] == target['client_id']
+          if Configuration.fingerprint(@config[slot]) == Configuration.fingerprint(target)
             secrets[slot] = current.merge(value)
             @store.write('secrets', secrets)
           end
