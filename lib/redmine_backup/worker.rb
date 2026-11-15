@@ -142,6 +142,10 @@ module RedmineBackup
         queue = @store.read('queue', [])
         job = queue.shift
         if job
+          if %w[retry_upload retry_packaging].include?(job['kind'])
+            @store.audit('fresh_backup_replaces_queued_retry', run: job['run_id'])
+            job = job.except('run_id').merge('kind' => 'backup')
+          end
           @store.write('active_job', job)
           @store.write('queue', queue)
         end
@@ -152,13 +156,6 @@ module RedmineBackup
     def execute(job)
       case job['kind']
       when 'backup' then capture_and_upload(job)
-      when 'retry_upload' then upload(find_run(job.fetch('run_id')))
-      when 'retry_packaging'
-        run = find_run(job.fetch('run_id'))
-        raise Error, 'NO_VALID_CAPTURE' unless run['captured']
-        run['artifacts'] = @capture_factory.call(Configuration.new(run['config'])).package(run)
-        save_run(run)
-        upload(run)
       when 'test_notification'
         NotificationService.new(@config, @store).queue({ 'id' => 'notification-test-' + job['id'] }, 'TEST_NOTIFICATION')
       when 'health_check' then setup_health
@@ -181,13 +178,17 @@ module RedmineBackup
         terminal = affected && %w[complete failover_used capture_failed packaging_failed upload_failed partially_protected interrupted].include?(affected['status'])
         if terminal
           # The job had finished before its acknowledgement reached durable storage.
-        elsif affected && affected['captured']
-          kind = affected['artifacts'] ? 'retry_upload' : 'retry_packaging'
-          queue.unshift('id' => SecureRandom.hex(16), 'kind' => kind, 'run_id' => affected['id'])
         else
-          affected['status'] = 'interrupted' if affected
-          save_run(affected) if affected
-          queue.unshift(active.merge('id' => SecureRandom.hex(16)))
+          if affected
+            affected['status'] = 'interrupted'
+            affected['completed_at'] = Time.now.utc.iso8601
+            save_run(affected)
+            unless queue.any? { |job| %w[backup retry_upload retry_packaging].include?(job['kind']) }
+              queue.unshift('id' => SecureRandom.hex(16), 'kind' => 'backup', 'scheduled_at' => affected['scheduled_at'])
+            end
+          else
+            queue.unshift(active.except('run_id').merge('id' => SecureRandom.hex(16), 'kind' => (%w[retry_upload retry_packaging].include?(active['kind']) ? 'backup' : active['kind'])))
+          end
         end
         @store.write('queue', queue)
       end
@@ -354,9 +355,5 @@ module RedmineBackup
       @store.write('runs', runs + [run])
     end
 
-    def find_run(identifier)
-      @store.run_path(identifier)
-      @store.read('runs', []).find { |run| run['id'] == identifier } || raise(Error, 'BACKUP_NOT_FOUND')
-    end
   end
 end

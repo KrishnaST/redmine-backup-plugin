@@ -15,8 +15,9 @@ Current native plugin version: 0.3.1. This describes source implementation, not 
 | Safe cleanup | Protected pending copies, ownership/reference checks, per-target history, last good copy, lock deferral |
 | Scheduling and catch-up | Supervised native Ruby worker, persistent queue, latest missed slot, explicit pause; Redmine settings cache refreshed before every runtime load |
 | One-run lock | Kernel process lock, heartbeat and interrupted-job reconciliation |
-| Packaging | Separate components or ZIP64; retry packaging without another dump |
-| Upload retry | Existing artifact hash validation, provider checkpoints, resume where supported |
+| Packaging | Separate components or ZIP64 with component/wrapper integrity checks |
+| Missed upload recovery | Fresh full capture with current configuration and a new run ID; old queued retries converted; historical copies unchanged |
+| History clearing | Administrator-only per-category controls; backup visibility reset without deleting files/retention metadata; pending alerts preserved |
 | Providers | Google My Drive/Shared Drives, OneDrive Personal/Business, explicit SharePoint libraries, SFTP and S3-compatible adapters |
 | Secondary | Optional/disabled by default; explicit Redundant or Failover |
 | Versioning/locks | Existing S3 capability checks, opt-in object protection and locked-cleanup deferral |

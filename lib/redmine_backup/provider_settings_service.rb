@@ -20,6 +20,9 @@ module RedmineBackup
     }.freeze
     SECRETS = %w[client_secret access_token refresh_token expires_at password key_passphrase secret_access_key session_token service_account_json certificate_pem private_key].freeze
     IDENTITY_FIELDS = %w[provider auth_method client_id tenant_id impersonated_user service_account_json certificate_pem private_key client_secret federated_token_path user_assertion_path username password].freeze
+    LOCATION_IDENTITY_FIELDS = %w[provider auth_method client_id tenant_id impersonated_user service_account_json username].freeze
+    CONTAINER_FIELDS = %w[shared_drive_id drive_id site_id].freeze
+    PROVIDER_REFERENCES = %w[client_id tenant_id folder_id shared_drive_id drive_id site_id].freeze
     CLOUD_CREDENTIALS = %w[client_secret service_account_json certificate_pem private_key key_passphrase password access_token refresh_token expires_at].freeze
     METHOD_CREDENTIALS = {
       'oauth2' => %w[client_secret access_token refresh_token expires_at],
@@ -48,10 +51,12 @@ module RedmineBackup
     def self.merge(original, input)
       provider = input.fetch('provider', original['provider'])
       allowed = COMMON + FIELDS.fetch(provider, [])
-      result = original.slice(*allowed)
+      provider_changed = original['provider'] != provider
+      result = original.slice(*(provider_changed ? COMMON : allowed))
       allowed.each do |key|
         next unless input.key?(key)
         next if SECRETS.include?(key) && input[key].to_s.empty?
+        next if provider_changed && PROVIDER_REFERENCES.include?(key) && input[key].to_s.strip == original[key].to_s
         result[key] = SECRETS.include?(key) ? input[key].to_s : input[key].to_s.strip
       end
       %w[enabled versioning retention_lock].each { |key| result[key] = input[key] == '1' || input[key] == true }
@@ -65,6 +70,17 @@ module RedmineBackup
         unused.each { |key| result.delete(key) }
       end
       original_identity = original.merge('auth_method' => authentication(original))
+      application_changed = %w[provider client_id tenant_id].any? { |key| result[key].to_s != original_identity[key].to_s }
+      if application_changed && CloudIdentity::PROVIDERS.include?(provider)
+        %w[client_secret certificate_pem private_key key_passphrase].each { |key| result.delete(key) if input[key].to_s.empty? }
+      end
+      location_changed = (LOCATION_IDENTITY_FIELDS + CONTAINER_FIELDS).any? { |key| result[key].to_s != original_identity[key].to_s }
+      if location_changed && result['folder_id'].to_s == original['folder_id'].to_s
+        result.delete('folder_id')
+      end
+      if !provider_changed && !location_changed && result['folder_id'] == original['folder_id'] && original['folder_origin'] == 'application'
+        result['folder_origin'] = 'application'
+      end
       identity_changed = IDENTITY_FIELDS.any? { |key| result[key].to_s != original_identity[key].to_s }
       if identity_changed
         %w[access_token refresh_token expires_at].each do |key|

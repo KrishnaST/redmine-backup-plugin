@@ -65,7 +65,7 @@ module RedmineBackup
     end
 
     def self.fingerprint(target)
-      public_target = target.slice(*%w[provider auth_method endpoint region bucket prefix host port username directory client_id tenant_id folder_id shared_drive_id drive_id site_id impersonated_user])
+      public_target = target.slice(*%w[provider auth_method endpoint region bucket prefix access_key_id host port username directory private_key_path known_hosts client_id tenant_id folder_id shared_drive_id drive_id site_id impersonated_user versioning retention_lock lock_days])
       Digest::SHA256.hexdigest(JSON.generate(public_target.sort.to_h))
     end
 

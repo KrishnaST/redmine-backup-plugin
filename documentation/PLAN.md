@@ -33,13 +33,13 @@ A manifest records runtime versions, source/archive mappings, captured files, ar
 
 The native worker evaluates a durable schedule/queue. A missed schedule after an outage triggers one fresh current backup once the app/database/worker are ready. It does not invent historical recovery points for every missed day. Explicit Pause is respected; manually requested work does not suppress the next scheduled slot.
 
-A process lock prevents concurrent writers across startup hooks/workers/admin clicks. Heartbeats show liveness; durable state identifies interrupted work. Incomplete capture is restarted; valid captured payloads can proceed to packaging/upload retry. A still-running hung process is not automatically overtaken by another writer.
+A process lock prevents concurrent writers across startup hooks/workers/admin clicks. Heartbeats show liveness; durable state identifies interrupted work. Interrupted capture/upload recovery starts a fresh full capture with current configuration, sharing an already queued current backup where available. A still-running hung process is not automatically overtaken by another writer.
 
 Capture uses an exported PostgreSQL repeatable-read, read-only snapshot for the dump and referenced-attachment inventory. Attachment data is checked for size and available stored digest while copying; archive components receive SHA256 checksums. Streaming, disk reserve checks, process timeouts and worker CPU/I/O priority limit impact. The snapshot does not claim an atomic whole-filesystem image.
 
 ## Packaging and upload
 
-Separate components are the default. Single-ZIP mode wraps the same dump/archive/bootstrap/manifest/guide and checks the resulting archive. Already compressed components are stored without recompression. Packaging retry reuses verified components; upload retry reuses verified payloads without another dump.
+Separate components are the default. Single-ZIP mode wraps the same dump/archive/bootstrap/manifest/guide and checks the resulting archive. Already compressed components are stored without recompression. Recovery after a missed/failed backup/upload takes a new full backup. Bounded chunk retries within an active run can resume that run's upload; a restarted recovery run never borrows old sessions or artifacts.
 
 Adapters cover Google My Drive/Shared Drives, OneDrive Personal/Business, SharePoint document libraries, SFTP and S3-compatible endpoints. Authentication choices and provider prerequisites are indexed in [provider authentication](AUTHENTICATION.md). Other Ruby-capable services are cataloged as future adapters, not implied implemented support. Authentication, resumability, integrity checks and ownership-scoped retention are provider-specific. A completion marker is published only after all required artifacts verify.
 
@@ -49,7 +49,7 @@ The optional secondary supports:
 - **Redundant:** attempt both copies every run, even after primary failure; both must verify. One success is Partially Protected and pending local artifacts stay protected.
 - **Failover:** exhaust primary upload retries, then use the same payload at secondary. Report Failover Used, alert on primary failure, and try primary first on the next run.
 
-Each destination has separate credentials, sessions, completion status and retention. Historical retries retain their original target identity; changing targets cannot silently redirect old jobs or delete a different namespace.
+Each destination has separate credentials, sessions, completion status and retention. Recovery takes a fresh capture using current destinations and credentials. Historical copies retain their original target identity so reconfiguration cannot redirect retention deletion into another namespace.
 
 ## Retention and provider protection
 

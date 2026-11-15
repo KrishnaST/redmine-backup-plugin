@@ -226,6 +226,7 @@ class CloudAuthenticationTest < BackupTest
     http = Http.new(status: 200, data: { 'id' => 'created-folder' })
     connected = RedmineBackup::CloudLocationService.new(http: http).prepare(target.merge('shared_drive_id' => 'team-drive'))
     assert_equal 'created-folder', connected['folder_id']
+    assert_equal 'application', connected['folder_origin']
     assert_equal ['team-drive'], JSON.parse(http.requests.first[2][:body])['parents']
   end
 
@@ -288,6 +289,37 @@ class CloudAuthenticationTest < BackupTest
     provider.instance_variable_set(:@http, http)
     error = assert_raises(RedmineBackup::Error) { provider.health! }
     assert_equal 'DESTINATION_FOLDER_REQUIRED', error.message
+    assert_empty http.requests
+  end
+
+  def test_reconnecting_reuses_accessible_automatic_folder
+    http = Http.new(status: 200, data: { 'id' => 'existing' })
+    target = { 'provider' => 'google_drive', 'access_token' => 'access', 'folder_id' => 'existing', 'folder_origin' => 'application' }
+    connected = RedmineBackup::CloudLocationService.new(http: http).prepare(target)
+    assert_equal 'existing', connected['folder_id']
+    assert_equal ['get'], http.requests.map(&:first)
+  end
+
+  def test_changed_account_or_deleted_automatic_folder_creates_a_new_binding
+    http = Http.new({ status: 404, data: {} }, { status: 200, data: { 'id' => 'replacement' } })
+    target = { 'provider' => 'onedrive_personal', 'access_token' => 'access', 'folder_id' => 'old', 'folder_origin' => 'application' }
+    connected = RedmineBackup::CloudLocationService.new(http: http).prepare(target)
+    assert_equal 'replacement', connected['folder_id']
+    assert_equal 'application', connected['folder_origin']
+    assert_equal %w[get post], http.requests.map(&:first)
+  end
+
+  def test_temporary_provider_errors_do_not_silently_recreate_automatic_folders
+    http = Http.new(status: 503, data: {})
+    target = { 'provider' => 'google_drive', 'access_token' => 'access', 'folder_id' => 'old', 'folder_origin' => 'application' }
+    assert_raises(RedmineBackup::Error) { RedmineBackup::CloudLocationService.new(http: http).prepare(target) }
+    assert_equal 1, http.requests.length
+  end
+
+  def test_explicit_folder_reference_is_not_replaced_on_sign_in
+    http = Http.new
+    target = { 'provider' => 'google_drive', 'access_token' => 'access', 'folder_id' => 'explicit' }
+    assert_equal 'explicit', RedmineBackup::CloudLocationService.new(http: http).prepare(target)['folder_id']
     assert_empty http.requests
   end
 end

@@ -1,6 +1,6 @@
 # Redmine Backup
 
-Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.3.1 fixes worker settings refresh and stale connection health after authorization. Version 0.3.0 adds Google Personal/Workspace and Microsoft Personal/Business/SharePoint identity choices, application/service-account authentication, device-code sign-in and document-library routing. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
+Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Intended for Redmine 7.x on Linux. Version 0.3.2 updates storage references on reconfiguration, takes fresh backups for missed/failed upload recovery and adds administrator history-clearing controls. A live upload to the chosen storage provider and a full restore drill are required before relying on scheduled protection.
 
 ## Features
 
@@ -12,7 +12,9 @@ Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified 
 - Google Drive, OneDrive Personal/Business, SharePoint document libraries, SFTP and S3-compatible adapters. Resumability is provider-specific; verification uses streamed SHA256 read-back. No plugin bandwidth throttle.
 - Separate components or single ZIP, no additional archive encryption. No 7z, Python, Java or rclone dependency.
 - Startup catch-up, durable queue, process lock, heartbeat, crash reconciliation, encrypted control state, coverage-change indication and audit history.
-- Retry Upload and Retry Packaging reuse the valid captured set.
+- Missed schedules, interrupted transfers and manual recovery take a fresh full backup using current configuration. Retry upload/packaging controls appear only on the latest run. Bounded retries within an active upload can still resume chunks.
+- Storage changes clear incompatible application/folder references. Historical copies retain their original references and checksums.
+- Clear backup, audit or notification history independently; backup files, retention metadata, pending work and alerts awaiting delivery are protected.
 - Existing Redmine mail delivery, selected existing users/groups, test notification and bounded mail retries.
 - S3 versioning/Object Lock capability checks and retention deferral. Equivalent protection is not assumed for other providers.
 - Offline recovery manifest, private bootstrap and recovery guide. Gateway applications/certificates/services are excluded.
@@ -45,7 +47,8 @@ An example [systemd unit](templates/redmine-backup-worker.service) supervises th
 | --- | --- | --- |
 | GET | `/admin/backups` | Dashboard, settings, history and health |
 | POST | `/admin/backups/settings` | Validated settings save |
-| POST | `/admin/backups/actions` | Queue backup, upload retry, packaging retry or test notification |
+| POST | `/admin/backups/actions` | Queue fresh backup, setup check or test notification; older retry requests also create a fresh backup |
+| POST | `/admin/backups/history/clear` | Clear the selected backup, audit or terminal notification history |
 | POST | `/admin/backups/connect/:slot` | Connect browser/device/application identity for a destination |
 | GET | `/admin/backups/oauth/device` | Resume the signed-in administrator's pending device authorization |
 | POST | `/admin/backups/oauth/device/poll` | Check an administrator-bound Microsoft device authorization |

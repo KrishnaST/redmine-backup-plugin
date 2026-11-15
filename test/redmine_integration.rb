@@ -131,6 +131,89 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     runtime.store.write('setup_health', [{ 'name' => 'Primary destination connection/protection', 'ok' => false }])
     runtime.save!(runtime.config.values, actor: @admin.id.to_s)
     assert_empty runtime.store.read('setup_health', [])
+    assert runtime.store.read('queue', []).any? { |job| job['kind'] == 'health_check' }
+  end
+
+  def test_storage_reconfiguration_updates_public_private_and_bootstrap_references
+    runtime = RedmineBackup::Runtime.new
+    runtime.save!(runtime.config.values.merge('primary' => { 'provider' => 'google_drive', 'auth_method' => 'oauth2',
+                                                           'client_id' => 'old-client', 'client_secret' => 'private-secret',
+                                                           'folder_id' => 'old-folder', 'folder_origin' => 'application',
+                                                           'access_token' => 'old-access', 'refresh_token' => 'old-refresh' }), actor: @admin.id.to_s)
+    sign_in
+    post '/admin/backups/settings', params: { backup: { primary: { provider: 'google_drive', auth_method: 'oauth2',
+                                                                  client_id: 'new-client', folder_id: 'old-folder' } } }
+    assert_response :redirect
+    fresh = RedmineBackup::Runtime.new
+    assert_equal 'new-client', fresh.config['primary']['client_id']
+    %w[folder_id folder_origin access_token refresh_token].each { |field| refute fresh.config['primary'].key?(field) }
+    bootstrap = fresh.store.read('bootstrap')
+    assert_equal 'new-client', bootstrap.dig('settings', 'primary', 'client_id')
+    refute bootstrap['secrets']['primary'].key?('refresh_token')
+    refute Setting.plugin_redmine_backup_plugin['primary'].key?('folder_id')
+  end
+
+  def test_administrator_can_clear_histories_without_losing_backup_state_or_pending_alerts
+    sign_in
+    runtime = RedmineBackup::Runtime.new
+    run = { 'id' => '20261115T143000Z-abcdef123456', 'status' => 'complete', 'date' => '2026-11-15',
+            'captured' => true, 'completed_at' => '2026-11-15T14:30:00Z', 'destinations' => { 'primary' => { 'verified' => true } } }
+    runtime.store.write('runs', [run])
+    runtime.store.write('notifications', [{ 'code' => 'DELIVERED', 'sent_at' => Time.now.utc.iso8601 },
+                                          { 'code' => 'PENDING', 'attempts' => 0 }])
+    post '/admin/backups/history/clear', params: { category: 'backups' }
+    assert_response :redirect
+    follow_redirect!
+    assert_response :success
+    refute_includes response.body, run['id']
+    assert_equal 1, runtime.store.read('runs').length
+    assert_includes response.body, 'Clear backup history'
+    assert_includes response.body, 'Clear audit history'
+    assert_includes response.body, 'Clear notification history'
+    post '/admin/backups/history/clear', params: { category: 'notifications' }
+    assert_response :redirect
+    assert_equal ['PENDING'], runtime.store.read('notifications').map { |event| event['code'] }
+    post '/admin/backups/history/clear', params: { category: 'audit' }
+    assert_response :redirect
+    assert_equal ['audit_history_cleared'], runtime.store.read('audit').map { |event| event['event'] }
+  end
+
+  def test_history_clear_rejects_anonymous_and_nonadministrator_users
+    host! 'redmine.example.test'
+    runtime = RedmineBackup::Runtime.new
+    runtime.store.audit('preserved_event')
+    post '/admin/backups/history/clear', params: { category: 'audit' }
+    assert_response :redirect
+    sign_in
+    @admin.update!(admin: false)
+    post '/admin/backups/history/clear', params: { category: 'audit' }
+    assert_response :forbidden
+    assert_equal ['preserved_event'], runtime.store.read('audit').map { |event| event['event'] }
+  end
+
+  def test_upload_recovery_queues_fresh_backup_even_without_old_local_payload
+    sign_in
+    post '/admin/backups/actions', params: { kind: 'retry_upload', run_id: '20261115T143000Z-abcdef123456' }
+    assert_response :redirect
+    queue = RedmineBackup::Runtime.new.store.read('queue', [])
+    assert_equal ['backup'], queue.map { |job| job['kind'] }
+    assert_nil queue.first['run_id']
+  end
+
+  def test_retry_controls_are_rendered_only_for_the_latest_run
+    sign_in
+    runtime = RedmineBackup::Runtime.new
+    runs = %w[20261115T143000Z-abcdef123456 20261115T143001Z-abcdef123456].map do |identifier|
+      { 'id' => identifier, 'status' => 'upload_failed', 'date' => '2026-11-15', 'captured' => true,
+        'completed_at' => '2026-11-15T14:30:00Z', 'destinations' => {} }
+    end
+    runtime.store.write('runs', runs)
+    get '/admin/backups'
+    assert_response :success
+    assert_select 'table.backup-history tbody tr', count: 2
+    assert_select 'table.backup-history tbody tr:first-child input[value="Retry upload"]', count: 1
+    assert_select 'table.backup-history tbody tr:first-child input[value="Retry packaging"]', count: 1
+    assert_select 'table.backup-history tbody tr:last-child form', count: 0
   end
 
   def test_valid_callback_persists_private_grant_and_rejects_replay

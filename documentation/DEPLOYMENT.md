@@ -20,6 +20,7 @@ If boot/dependency verification fails, stop the backup worker, remove only the n
 ## Maintainer tooling
 
 - `tools/build_documentation.rb` generates the offline HTML guide from current Markdown using Ruby's RDoc. It has no production-runtime role.
+- `python tools/build_release.py` packages the committed runtime, documentation and templates into ignored `tmp/deployment/`, with REVISION, archive checksum and a runtime-file SHA-256 manifest. It excludes tests, maintainer tools, local data and Git metadata; commit the reviewed changes before packaging. Python is a maintainer-workstation tool only.
 - `tools/check_sources.rb` validates source/workflow syntax and local documentation links; `test/run.rb` runs the independent unit suite.
 - `tools/deployment_preflight.rb` reads the installed Redmine metadata from its own application root/environment.
 - `tools/deployment_verify.rb` verifies the installed plugin, disabled initial policy, private state and worker heartbeat using read-only database access.

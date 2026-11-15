@@ -85,4 +85,54 @@ class ProviderSettingsTest < BackupTest
     refute result.key?('client_secret')
     refute result.key?('password')
   end
+
+  def test_provider_switch_discards_shared_folder_and_blank_secret_inheritance
+    original = { 'provider' => 'google_drive', 'client_id' => 'old-app', 'client_secret' => 'old-secret',
+                 'folder_id' => 'old-folder', 'refresh_token' => 'old-grant' }
+    result = RedmineBackup::ProviderSettingsService.merge(original, 'provider' => 'onedrive', 'client_id' => 'new-app',
+                                                                 'client_secret' => '', 'folder_id' => 'old-folder')
+    assert_equal 'new-app', result['client_id']
+    %w[client_secret folder_id refresh_token].each { |field| refute result.key?(field) }
+  end
+
+  def test_changed_application_discards_old_folder_but_keeps_explicit_new_folder
+    original = { 'provider' => 'google_drive', 'client_id' => 'old-app', 'client_secret' => 'old-secret', 'folder_id' => 'old-folder', 'refresh_token' => 'old-grant' }
+    result = RedmineBackup::ProviderSettingsService.merge(original, 'client_id' => 'new-app', 'folder_id' => 'old-folder')
+    refute result.key?('folder_id')
+    refute result.key?('refresh_token')
+    refute result.key?('client_secret')
+    result = RedmineBackup::ProviderSettingsService.merge(original, 'client_id' => 'new-app', 'folder_id' => 'new-folder')
+    assert_equal 'new-folder', result['folder_id']
+  end
+
+  def test_changed_library_discards_old_folder_without_revoking_the_same_account_grant
+    original = { 'provider' => 'onedrive', 'client_id' => 'app', 'drive_id' => 'old-library',
+                 'folder_id' => 'old-folder', 'refresh_token' => 'grant' }
+    result = RedmineBackup::ProviderSettingsService.merge(original, 'drive_id' => 'new-library', 'folder_id' => 'old-folder')
+    refute result.key?('folder_id')
+    assert_equal 'grant', result['refresh_token']
+  end
+
+  def test_secret_rotation_preserves_location_while_invalidating_cached_tokens
+    original = { 'provider' => 'google_drive', 'client_id' => 'app', 'client_secret' => 'old-secret',
+                 'folder_id' => 'folder', 'folder_origin' => 'application', 'refresh_token' => 'grant' }
+    result = RedmineBackup::ProviderSettingsService.merge(original, 'client_secret' => 'new-secret')
+    assert_equal 'folder', result['folder_id']
+    assert_equal 'application', result['folder_origin']
+    refute result.key?('refresh_token')
+  end
+
+  def test_manual_folder_change_removes_automatic_folder_binding
+    original = { 'provider' => 'google_drive', 'client_id' => 'app', 'folder_id' => 'automatic', 'folder_origin' => 'application' }
+    result = RedmineBackup::ProviderSettingsService.merge(original, 'folder_id' => 'explicit')
+    assert_equal 'explicit', result['folder_id']
+    refute result.key?('folder_origin')
+  end
+
+  def test_provider_switch_does_not_inherit_same_named_client_reference
+    original = { 'provider' => 'google_drive', 'client_id' => 'old-app', 'folder_id' => 'old-folder' }
+    result = RedmineBackup::ProviderSettingsService.merge(original, 'provider' => 'onedrive', 'client_id' => 'old-app')
+    refute result.key?('client_id')
+    refute result.key?('folder_id')
+  end
 end

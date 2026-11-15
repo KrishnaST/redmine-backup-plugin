@@ -5,7 +5,7 @@ require 'socket'
 module RedmineBackup
   class Runtime
     SECRET_FIELDS = %w[password private_key key_passphrase client_secret secret_access_key session_token access_token refresh_token expires_at service_account_json certificate_pem].freeze
-    TARGET_FIELDS = %w[provider auth_method enabled mode remote_keep_dates versioning retention_lock lock_days region endpoint bucket prefix access_key_id host port username private_key_path known_hosts directory account_type client_id tenant_id folder_id shared_drive_id drive_id site_id impersonated_user federated_token_path user_assertion_path].freeze
+    TARGET_FIELDS = %w[provider auth_method enabled mode remote_keep_dates versioning retention_lock lock_days region endpoint bucket prefix access_key_id host port username private_key_path known_hosts directory account_type client_id tenant_id folder_id folder_origin shared_drive_id drive_id site_id impersonated_user federated_token_path user_assertion_path].freeze
     attr_reader :store, :config
 
     def self.host_identity
@@ -80,12 +80,17 @@ module RedmineBackup
         store.write('setup_health', [])
         store.audit('settings_changed', actor: actor)
       end || raise(Error, 'WORKER_BUSY_RETRY_SETTINGS')
+      enqueue!('health_check', actor: actor) unless recovery?
     end
 
     def enqueue!(kind, run_id: nil, actor: 'administrator')
       raise Error, 'RECOVERY_MODE_REQUIRES_ACTIVATION' if recovery?
       raise Error, 'INVALID_JOB_KIND' unless %w[backup retry_upload retry_packaging test_notification health_check].include?(kind)
       store.run_path(run_id) if run_id
+      if %w[retry_upload retry_packaging].include?(kind)
+        store.audit('fresh_backup_requested_for_missed_upload', actor: actor, run: run_id)
+        kind, run_id = 'backup', nil
+      end
       store.lock('queue') do
         queue = store.read('queue', [])
         active = store.read('active_job')

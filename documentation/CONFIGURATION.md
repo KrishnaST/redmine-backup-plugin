@@ -1,6 +1,6 @@
 # Configuration and storage
 
-All routine settings are on **Administration → Backups**. Secret inputs are write-only: blank preserves the stored value. Non-secret settings use Redmine's plugin Setting entry. Credentials, refresh grants, upload sessions, audit and queue state are encrypted in a private filesystem directory using a key derived from the existing Rails secret.
+All routine settings are on **Administration → Backups**. Secret inputs are write-only: blank preserves the stored value within the same provider/application. Changing the provider, client ID or tenant requires matching application credentials; a blank field cannot inherit another application's secret. Non-secret settings use Redmine's plugin Setting entry. Credentials, refresh grants, upload sessions, audit and queue state are encrypted in a private filesystem directory using a key derived from the existing Rails secret.
 
 ## Retention
 
@@ -21,7 +21,15 @@ Disabled by default: no secondary settings/checks/uploads/alerts are required. W
 - **Redundant:** attempt both destinations on every run, including when primary fails. Both verified copies satisfy protection. One verified copy is Partially Protected; its local payload remains protected for retry.
 - **Failover:** exhaust bounded primary upload retries, then upload to secondary using the same artifacts. Next run tries primary first. A valid fallback gives Failover Used status while the primary failure generates an alert.
 
-An upload retry skips already verified targets. Deliberate primary backfill of a failover set is supported while its local artifacts remain available. Changing provider/destination does not redirect historical retries: each run retains its original configuration. Remote cleanup is skipped when the current destination identity differs from that historical target.
+Within an active run, bounded transfer retries skip already verified targets. Recovery from a missed/failed backup or upload creates a fresh full database/files capture with a new run ID and the currently saved destinations and credentials. The **Retry upload** and **Retry packaging** controls appear only on the latest finished run; both take a fresh backup before uploading. Older queued retry requests are converted to fresh captures. Historical copies keep their original locations, checksums and marker references; old remote partials are not blindly removed.
+
+## Storage reconfiguration
+
+Changing provider/application/account identity or the selected drive, site or Shared Drive clears an inherited folder ID. A different folder explicitly entered with the new settings is retained. New providers do not inherit shared client IDs, folders or private credentials from the previous provider. Switching libraries retains the same account's grant; switching application identity invalidates its old grant. Secret rotation for the same application retains its folder.
+
+Application-created folders are marked internally. Reconnecting checks an automatic folder with the newly authorized account, reuses it when accessible and creates a replacement after HTTP 404. Transient errors do not trigger replacement. Explicitly entered folder IDs are never silently substituted. Existing folder IDs from older plugin versions are treated as explicit until a new automatic folder is created.
+
+Each settings save updates Redmine settings, encrypted secrets and private bootstrap references, clears old health results and queues a fresh setup check. Workers refresh their settings cache before loading those values. New captures, including recovery after a missed upload, use current settings. Previously captured archives/bootstrap files remain immutable capture-time evidence.
 
 ## Google Drive
 
@@ -59,6 +67,12 @@ Locked cleanup shows Deferred Locked. It does not invalidate a verified upload. 
 
 The **Show backup status on administrator homepage** option is on by default. The homepage panel shows the latest result, last verified local/remote success, worker heartbeat, schedule and recovery mode. It does not expose paths, credentials or backup controls to bank/non-administrator users. Scheduling remains disabled until explicitly enabled.
 
-Back Up Now, Retry Upload, Retry Packaging and Test Notification enqueue durable work. The browser does not perform long-running capture or transfer. History separates local capture, packaging, primary/secondary verification, requested protection and cleanup. Retry Packaging checks the preserved manifest/components before creating a new wrapper. No bandwidth throttle is configured, but provider Retry-After/backoff remains in effect.
+Back Up Now, Retry Upload, Retry Packaging, Check Setup and Test Notification enqueue durable work. The browser does not perform long-running capture or transfer. History separates local capture, packaging, primary/secondary verification, requested protection and cleanup. Startup catch-up and interrupted-work recovery take a fresh snapshot; they do not upload a stale historical capture. A failed completed run remains in history and generates an alert; its recovery control or the next scheduled backup starts fresh. No bandwidth throttle is configured, but provider Retry-After/backoff remains in effect.
 
 Check Setup queues tool/path/disk/provider capability checks and shows their results on the dashboard. Backup/upload failures always generate a deduplicated notification request. Recovery confirmations and scheduled daily-success summaries are optional/off by default. Emails include the run/event, timestamp, last local/remote success and one administrator details link. Recipient selection is resolved against active current users/group members at delivery time.
+
+## Clear history
+
+Administrators can use **Clear backup history**, **Clear audit history** and **Clear notification history** on the dashboard. Each requires a confirmed POST through Redmine's CSRF-protected administration route. History changes acquire the worker lock; a busy worker must finish before clearing.
+
+Backup clearing hides finished results from the history table. It does not delete backup files, remote objects, internal restore/retention records, pending jobs or the homepage's last successful backup indicators. Queued retries and active results stay visible. A retried hidden run appears again when it starts or gets a new result. Audit clearing removes previous events and records the clearing action. Notification clearing removes delivered events and exhausted failures; partially delivered/retryable alerts remain, including their per-recipient progress.

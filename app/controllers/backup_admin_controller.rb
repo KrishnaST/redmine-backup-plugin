@@ -9,7 +9,8 @@ class BackupAdminController < ApplicationController
 
   def index
     @config = @runtime.config
-    @runs = @runtime.store.read('runs', []).reverse.first(100)
+    @runs = RedmineBackup::HistoryService.new(@runtime.store).visible_runs.reverse.first(100)
+    @latest_run_id = @runtime.store.read('runs', []).last&.fetch('id')
     @health = @runtime.health
     @users = User.active.sorted
     @groups = Group.where(type: 'Group').order(:lastname)
@@ -41,6 +42,15 @@ class BackupAdminController < ApplicationController
   def activate
     @runtime.activate!(actor: User.current.id.to_s)
     flash[:notice] = 'This restored instance is activated. Scheduling remains paused; review settings before enabling.'
+    redirect_to redmine_backups_path
+  rescue RedmineBackup::Error => error
+    flash[:error] = safe_error(error)
+    redirect_to redmine_backups_path
+  end
+
+  def clear_history
+    RedmineBackup::HistoryService.new(@runtime.store).clear!(params.require(:category).to_s, actor: User.current.id.to_s)
+    flash[:notice] = 'History cleared. Backup files, retention records, pending jobs and unsent alerts are preserved.'
     redirect_to redmine_backups_path
   rescue RedmineBackup::Error => error
     flash[:error] = safe_error(error)

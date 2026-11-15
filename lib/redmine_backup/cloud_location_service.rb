@@ -21,7 +21,19 @@ module RedmineBackup
 
     def prepare(target)
       connected = target.dup
-      return connected unless connected['folder_id'].to_s.empty?
+      unless connected['folder_id'].to_s.empty?
+        return connected unless connected['folder_origin'] == 'application'
+        folder = self.class.segment(connected['folder_id'])
+        url = if CloudIdentity.google?(connected)
+                "https://www.googleapis.com/drive/v3/files/#{folder}?fields=id&supportsAllDrives=true"
+              else
+                "#{self.class.graph_base(connected)}/items/#{folder}?$select=id"
+              end
+        response = @http.request('get', url, headers: { 'Authorization' => "Bearer #{connected.fetch('access_token')}" })
+        return connected if response.code.to_i == 200
+        @http.json!(response) unless response.code.to_i == 404
+        connected.delete('folder_id')
+      end
       if CloudIdentity.google?(connected)
         service = %w[service_account domain_delegation].include?(CloudIdentity.method(connected))
         if service && connected['impersonated_user'].to_s.empty? && connected['shared_drive_id'].to_s.empty?
@@ -36,6 +48,7 @@ module RedmineBackup
       end
       response = @http.request('post', url, headers: { 'Content-Type' => 'application/json', 'Authorization' => "Bearer #{connected.fetch('access_token')}" }, body: JSON.generate(data))
       connected['folder_id'] = @http.json!(response).fetch('id')
+      connected['folder_origin'] = 'application'
       connected
     end
   end

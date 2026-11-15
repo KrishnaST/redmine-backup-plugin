@@ -160,7 +160,7 @@ class WorkerTest < BackupTest
     assert_empty @primary.deleted
   end
 
-  def test_historical_retry_cannot_cleanup_a_reconfigured_destination
+  def test_historical_upload_cannot_cleanup_a_reconfigured_destination
     setup_run
     @config.values['primary'] = @config['primary'].merge('bucket' => 'new-location')
     # The durable run contains its own historical settings, not a shared reference.
@@ -168,4 +168,72 @@ class WorkerTest < BackupTest
     upload
     assert_equal 'skipped_destination_changed', @run.dig('destinations', 'primary', 'cleanup')
   end
+
+  def test_queued_upload_recovery_captures_fresh_data_with_current_storage
+    setup_run
+    @store.write('metadata', 'installation_id' => 'test-installation')
+    @run['status'] = 'upload_failed'
+    @run['completed_at'] = (Time.now.utc - 60).iso8601
+    @run['destinations']['primary'] = { 'verified' => false, 'sessions' => { 'database.dump' => { 'url' => 'stale-session' } } }
+    original = JSON.parse(JSON.generate(@run))
+    @store.write('runs', [@run])
+    @store.write('queue', [{ 'id' => 'old-retry', 'kind' => 'retry_upload', 'run_id' => @run['id'] }])
+    @config.values['primary'] = @config['primary'].merge('bucket' => 'secondary')
+    store = @store
+    capture = Object.new
+    capture.define_singleton_method(:sources) { [] }
+    capture.define_singleton_method(:call) do |run, &block|
+      FileUtils.mkdir_p(store.run_path(run['id']))
+      File.write(File.join(store.run_path(run['id']), 'database.dump'), 'fresh-data')
+      block.call
+      [{ 'name' => 'database.dump', 'bytes' => 10, 'sha256' => Digest::SHA256.hexdigest('fresh-data') }]
+    end
+    @worker.instance_variable_set(:@capture_factory, ->(_config) { capture })
+    job = @worker.send(:claim)
+    assert_equal 'backup', job['kind']
+    refute job.key?('run_id')
+    RedmineBackup::NotificationService.stub(:new, @notices) { @worker.send(:execute, job) }
+    runs = @store.read('runs')
+    assert_equal 2, runs.length
+    assert_equal original, runs.first
+    fresh = runs.last
+    refute_equal @run['id'], fresh['id']
+    assert_equal 'complete', fresh['status']
+    assert_equal 'secondary', fresh['config']['primary']['bucket']
+    assert_equal 'fresh-data', File.read(File.join(@store.run_path(fresh['id']), 'database.dump'))
+    assert_empty @primary.objects
+    assert_equal 2, @secondary.objects.length
+  end
+
+  def test_interrupted_upload_starts_new_capture_instead_of_resuming_old_snapshot
+    setup_run
+    @run.merge!('status' => 'uploading', 'job_id' => 'interrupted-job')
+    @store.write('runs', [@run])
+    @store.write('active_job', 'id' => 'interrupted-job', 'kind' => 'backup')
+    @worker.send(:recover_interrupted)
+    job = @store.read('queue').first
+    assert_equal 'backup', job['kind']
+    refute job.key?('run_id')
+    assert_equal 'interrupted', @store.read('runs').first['status']
+    assert_equal 'dump', File.read(File.join(@store.run_path(@run['id']), 'database.dump'))
+  end
+
+  def test_queued_packaging_recovery_also_requires_fresh_capture
+    setup_run
+    @store.write('queue', [{ 'id' => 'old-packaging', 'kind' => 'retry_packaging', 'run_id' => @run['id'] }])
+    job = @worker.send(:claim)
+    assert_equal 'backup', job['kind']
+    refute job.key?('run_id')
+  end
+
+  def test_restart_recovery_shares_an_existing_fresh_scheduled_backup
+    setup_run
+    @run.merge!('status' => 'uploading', 'job_id' => 'interrupted-job')
+    @store.write('runs', [@run])
+    @store.write('active_job', 'id' => 'interrupted-job', 'kind' => 'backup')
+    @store.write('queue', [{ 'id' => 'current-schedule', 'kind' => 'backup' }])
+    @worker.send(:recover_interrupted)
+    assert_equal ['current-schedule'], @store.read('queue').map { |job| job['id'] }
+  end
+
 end

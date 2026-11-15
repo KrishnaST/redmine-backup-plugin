@@ -45,13 +45,15 @@
   <%= button_to 'Check setup', redmine_backup_actions_path(kind: 'health_check'), method: :post %>
 </div>
 <h3>Backup history</h3>
+<p class="backup-hint">Recovery actions are available on the latest run only. Retry upload and Retry packaging take a fresh full backup using current settings, then upload it.</p>
+<%= button_to 'Clear backup history', redmine_backup_clear_history_path(category: 'backups'), method: :post, data: { confirm: 'Clear completed backup history from this list? Backup files and retention records are preserved.' } %>
 <table class="list backup-history"><thead><tr><th>Run</th><th>Date</th><th>Capture / overall result</th><th>Primary</th><th>Secondary</th><th>Actions</th></tr></thead><tbody>
   <% @runs.each do |run| %><tr>
     <td><%= run['id'] %><% if run['coverage_changed'] %><br><strong>Coverage changed</strong><% end %></td><td><%= run['date'] %></td>
     <td><%= run['captured'] ? 'Captured' : 'Not captured' %><br><%= run['status'].tr('_', ' ') %><%= run['local_deleted'] ? ' · local removed' : '' %><br><%= run['error'] %></td>
     <% %w[primary secondary].each do |slot| %><% state = run.fetch('destinations', {})[slot] %><td><%= state ? (state['verified'] ? 'Verified' : 'Pending / failed') : (slot == 'secondary' && !run['secondary_mode'] ? 'Disabled' : 'Not attempted') %><br><%= state && state['error'] %><br>Protection: <%= state && state['protection'] %><br>Cleanup: <%= state && state['cleanup'] %></td><% end %>
-    <td><% if run['captured'] && !run['local_deleted'] %><%= button_to 'Retry upload', redmine_backup_actions_path(kind: 'retry_upload', run_id: run['id']), method: :post %><%= button_to 'Retry packaging', redmine_backup_actions_path(kind: 'retry_packaging', run_id: run['id']), method: :post %><% end %></td>
+    <td><% if run['id'] == @latest_run_id && !%w[capturing packaging captured uploading].include?(run['status']) %><%= button_to 'Retry upload', redmine_backup_actions_path(kind: 'retry_upload', run_id: run['id']), method: :post %><%= button_to 'Retry packaging', redmine_backup_actions_path(kind: 'retry_packaging', run_id: run['id']), method: :post %><% end %></td>
   </tr><% end %>
 </tbody></table>
-<details><summary>Recent audit history</summary><table class="list"><tbody><% @audit.each do |event| %><tr><td><%= event['at'] %></td><td><%= event['event'] %></td><td><%= event['actor'] %></td><td><%= event['run'] %></td></tr><% end %></tbody></table></details>
-<details><summary>Notification delivery</summary><table class="list"><tbody><% @notifications.each do |event| %><tr><td><%= event['at'] %></td><td><%= event['code'] %></td><td><%= event['sent_at'] || event['delivery_status'] || 'Pending' %></td></tr><% end %></tbody></table></details>
+<details><summary>Recent audit history</summary><%= button_to 'Clear audit history', redmine_backup_clear_history_path(category: 'audit'), method: :post, data: { confirm: 'Clear audit history? The clearing action itself will be recorded.' } %><table class="list"><tbody><% @audit.each do |event| %><tr><td><%= event['at'] %></td><td><%= event['event'] %></td><td><%= event['actor'] %></td><td><%= event['run'] %></td></tr><% end %></tbody></table></details>
+<details><summary>Notification delivery</summary><%= button_to 'Clear notification history', redmine_backup_clear_history_path(category: 'notifications'), method: :post, data: { confirm: 'Clear delivered and exhausted notification history? Alerts awaiting delivery are preserved.' } %><table class="list"><tbody><% @notifications.each do |event| %><tr><td><%= event['at'] %></td><td><%= event['code'] %></td><td><%= event['sent_at'] || event['delivery_status'] || 'Pending' %></td></tr><% end %></tbody></table></details>
