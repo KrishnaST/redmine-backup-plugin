@@ -33,7 +33,7 @@ module RedmineBackup
       integer!('disk_reserve_mb', 64, 1_048_576)
       integer!('timeout_seconds', 60, 172_800)
       raise Error, 'INVALID_TIME' unless self['time'].match?(/\A(?:[01]\d|2[0-3]):[0-5]\d\z/)
-      raise Error, 'INVALID_PACKAGING' unless %w[separate zip].include?(self['packaging'])
+      raise Error, 'INVALID_PACKAGING' unless %w[separate zip tar_gz].include?(self['packaging'])
       raise Error, 'INVALID_TIMEZONE' if defined?(ActiveSupport::TimeZone) && !ActiveSupport::TimeZone[self['timezone']]
       destinations.each do |slot, target|
         raise Error, 'INVALID_PROVIDER' unless PROVIDERS.include?(target['provider'])

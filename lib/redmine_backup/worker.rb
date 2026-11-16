@@ -270,7 +270,8 @@ module RedmineBackup
           provider = @provider_factory.call(target, checkpoint)
           provider.health!
           folder_name = BackupLayout.folder_name(run)
-          unless run['config']['packaging'] == 'zip'
+          extension = BackupLayout.archive_extension(run['config']['packaging'])
+          unless extension
             state['folder'] = provider.prepare_run(folder_name, state['folder'])
             save_run(run)
           end
@@ -278,7 +279,7 @@ module RedmineBackup
           run['artifacts'].each do |item|
             next if state['artifacts'].any? { |existing| existing['name'] == item['name'] }
             state['current_artifact'] = item['name']
-            key = run['config']['packaging'] == 'zip' ? "#{folder_name}.zip" : "#{folder_name}/#{item['name']}"
+            key = extension ? "#{folder_name}.#{extension}" : "#{folder_name}/#{item['name']}"
             reference = provider.upload(File.join(@store.run_path(run['id']), item['name']), key, state['sessions'].fetch(item['name'], {}))
             provider.verify!(reference, item)
             state['artifacts'] << item.merge('reference' => reference)
@@ -289,7 +290,7 @@ module RedmineBackup
           marker_path = File.join(@store.run_path(run['id']), "#{slot}-complete.json")
           @store.atomic(marker_path, JSON.generate(record))
           state['current_artifact'] = 'marker'
-          marker_key = run['config']['packaging'] == 'zip' ? "#{folder_name}-complete.json" : "#{folder_name}/complete.json"
+          marker_key = extension ? "#{folder_name}-complete.json" : "#{folder_name}/complete.json"
           state['marker'] = provider.upload(marker_path, marker_key, state['sessions'].fetch('marker', {}))
           provider.verify!(state['marker'], 'bytes' => File.size(marker_path), 'sha256' => Digest::SHA256.file(marker_path).hexdigest)
           state['verified'], state['completed_at'], state['error'] = true, Time.now.utc.iso8601, nil

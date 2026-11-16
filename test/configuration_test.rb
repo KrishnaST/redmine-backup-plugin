@@ -34,6 +34,7 @@ class ConfigurationTest < BackupTest
   end
 
   def test_supported_packaging_excludes_seven_zip
+    assert_equal 'tar_gz', config('packaging' => 'tar_gz')['packaging']
     assert_equal 'zip', config('packaging' => 'zip')['packaging']
     assert_raises(RedmineBackup::Error) { config('packaging' => '7z') }
   end

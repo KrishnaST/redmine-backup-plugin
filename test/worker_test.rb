@@ -133,6 +133,26 @@ class WorkerTest < BackupTest
     assert @run.dig('destinations', 'primary', 'verified')
   end
 
+  def test_tar_upload_is_one_named_archive_and_retention_understands_older_zip_archives
+    setup_run(nil, packaging: 'tar_gz', remote_keep_dates: 1)
+    File.write(File.join(@store.run_path(@run['id']), 'backup.tar.gz'), 'archive')
+    @run['artifacts'] = [{ 'name' => 'backup.tar.gz', 'bytes' => 7, 'sha256' => Digest::SHA256.hexdigest('archive') }]
+    old_folder = 'test-installation-20261101T143000Z-abcdef123456'
+    @primary.objects["#{old_folder}.zip"] = 'old ZIP'
+    @primary.objects["#{old_folder}-complete.json"] = JSON.generate(
+      'installation_id' => 'test-installation', 'id' => '20261101T143000Z-abcdef123456',
+      'date' => '2026-11-01', 'completed_at' => '2026-11-01T14:30:00Z', 'verified' => true,
+      'artifacts' => [{ 'reference' => { 'key' => "#{old_folder}.zip" } }]
+    )
+    upload
+    folder = RedmineBackup::BackupLayout.folder_name(@run)
+    assert_equal 'complete', @run['status']
+    assert_equal ["#{folder}-complete.json", "#{folder}.tar.gz"], @primary.objects.keys.sort
+    refute @run['destinations']['primary'].key?('folder')
+    assert_equal 'complete', @run.dig('destinations', 'primary', 'cleanup')
+    assert_includes @primary.deleted, "#{old_folder}.zip"
+  end
+
   def test_redundant_uploads_both
     setup_run('redundant')
     upload

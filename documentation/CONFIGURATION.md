@@ -69,7 +69,13 @@ Configure bucket, region and optional key prefix. Leave endpoint blank for AWS; 
 
 Locked cleanup shows Deferred Locked. It does not invalidate a verified upload. Noncurrent versions and deleted-marker history may remain subject to provider lifecycle policies. S3-compatible endpoints do not automatically support AWS's versioning/Object Lock APIs; capability failures are reported.
 
-## Backup folders and ZIP layout
+## Packaging and archive layout
+
+Choose **Single TAR.GZ (recommended)** for one `<backup-folder>.tar.gz` directly in the destination root. Inside it, `<backup-folder>/` contains `application/`, referenced `attachments/`, applicable `external/N/` paths, `database.dump`, `bootstrap.json`, `manifest.json` and `RECOVERY.md`. There is no nested `application.tar.gz` or ZIP wrapper. Application/attachment files stream directly into the archive with Ruby TAR/Zlib; no external archiving executable or additional gem is required. Gzip uses the existing Zlib default compression. The PostgreSQL custom dump retains its own database compression.
+
+The format-2 manifest records each application/attachment file and the database/bootstrap/guide checksums, plus safe relative symlinks. The archive's own checksum is recorded outside it in private run state and the verified remote completion marker; the manifest does not hash itself or its enclosing archive. The standalone verifier can check the TAR.GZ before extraction and its manifest after extraction. A small `<backup-folder>-complete.json` remains beside the archive for verified completion and retention; it is not another backup payload.
+
+Existing saved packaging settings and previously created backups are unchanged. Select and save TAR.GZ explicitly to use it for subsequent captures. Folder and ZIP remain supported for older workflows, and retention recognizes all three layouts together.
 
 **One backup folder** uploads each complete set into a separate directory beneath the configured destination. Its name combines the installation ID and unique timestamp/run ID, preventing collisions between installations. It contains `database.dump`, `application.tar.gz`, `bootstrap.json`, `RECOVERY.md`, `manifest.json` and a verified `complete.json` marker. On S3-compatible storage the directory is an object-key prefix; SFTP creates one private child directory in the configured existing destination.
 

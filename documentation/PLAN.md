@@ -13,7 +13,7 @@ This is the current scope of the native Ruby implementation. Installation/config
 | Local retention | Configurable successful dates; default 3 |
 | Remote retention | Configurable successful dates per destination; default 10, with per-target override |
 | Secondary | Optional, disabled by default; Redundant or Failover when enabled |
-| Packaging | Separate components or a single ZIP/ZIP64; no 7z |
+| Packaging | Single TAR.GZ (recommended), separate components or a single ZIP/ZIP64; no 7z |
 | Encryption | No additional archive encryption; private control credentials remain encrypted |
 | Bandwidth | No plugin throttle; provider-directed retry/backoff still applies |
 | Management | Redmine administrator UI with an automatically supervised Ruby child; no separate service/scheduler |
@@ -39,7 +39,9 @@ Capture uses an exported PostgreSQL repeatable-read, read-only snapshot for the 
 
 ## Packaging and upload
 
-One remote backup folder per run is the default. Single-ZIP mode places the five components inside one top-level backup folder in the ZIP, uploads the named archive directly in the destination root, and checks the resulting archive. Already compressed components are stored without recompression. Recovery after a missed/failed backup/upload takes a new full backup. Bounded chunk retries within an active run can resume that run's upload; a restarted recovery run never borrows old sessions or artifacts.
+Single-TAR.GZ mode places application/attachment/external paths, the database dump and recovery metadata directly in one named top-level folder inside `<backup-folder>.tar.gz`. It streams application files once, verifies the gzip trailer, file hashes, manifest inventory and safe links, and uploads the archive directly in the destination root. No application archive is nested within it. The whole-archive checksum and verified completion marker stay outside the archive to avoid circular hashes.
+
+Existing saved packaging settings are preserved; select TAR.GZ explicitly for new captures. One remote backup folder per run remains the initial default. Single-ZIP mode places the five legacy components inside one top-level backup folder in a ZIP, uploading the named archive directly in the destination root; already compressed components are stored without recompression. Recovery after a missed/failed backup/upload takes a new full backup. Bounded chunk retries within an active run can resume that run's upload; a restarted recovery run never borrows old sessions or artifacts.
 
 Adapters cover Google My Drive/Shared Drives, OneDrive Personal/Business, SharePoint document libraries, SFTP and S3-compatible endpoints. Authentication choices and provider prerequisites are indexed in [provider authentication](AUTHENTICATION.md). Other Ruby-capable services are cataloged as future adapters, not implied implemented support. Authentication, resumability, integrity checks and ownership-scoped retention are provider-specific. A completion marker is published only after all required artifacts verify.
 

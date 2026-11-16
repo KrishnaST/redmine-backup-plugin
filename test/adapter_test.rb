@@ -89,6 +89,8 @@ class AdapterTest < BackupTest
     folder = namespace.delete_suffix('-')
     provider.assert_reference!({ 'key' => "backups/#{folder}/database.dump" }, namespace)
     provider.assert_reference!({ 'key' => "backups/#{folder}.zip" }, namespace)
+    provider.assert_reference!({ 'key' => "backups/#{folder}.tar.gz" }, namespace)
+    assert_raises(RedmineBackup::Error) { provider.assert_reference!({ 'key' => "backups/#{folder}-other.tar.gz" }, namespace + 'foreign-') }
     assert_raises(RedmineBackup::Error) { provider.assert_reference!({ 'key' => "#{folder}/database.dump" }, namespace) }
     assert_raises(RedmineBackup::Error) { provider.assert_reference!({ 'key' => "backups/#{folder}/keep.txt" }, namespace) }
     assert_raises(RedmineBackup::Error) { provider.assert_reference!({ 'key' => "backups/#{folder}/../database.dump" }, namespace) }

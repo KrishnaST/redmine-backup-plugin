@@ -1,6 +1,6 @@
 # Implementation coverage
 
-Current native plugin version: 0.3.1. This describes source implementation, not proof of live provider authorization or a successful restore.
+Current native plugin version: 0.5.0. This describes source implementation, not proof of live provider authorization or a successful restore.
 
 | Requirement | Implementation |
 | --- | --- |
@@ -16,7 +16,7 @@ Current native plugin version: 0.3.1. This describes source implementation, not 
 | Scheduling and catch-up | Redmine-supervised Ruby child, one manager elected before Rails loads, persistent queue, latest missed slot, explicit pause; settings cache refreshed on every runtime load |
 | Platforms | Linux/macOS POSIX operations and native Windows disk/process/ACL adapters; executable suffixes and path containment adapted per OS |
 | One-run lock | Kernel process lock, heartbeat and interrupted-job reconciliation |
-| Packaging | One owned remote folder per run, or a named ZIP64 with one top-level backup folder; component/wrapper integrity checks |
+| Packaging | Single streamed TAR.GZ with direct application/database/recovery contents; legacy owned folders and ZIP64 remain supported; file/inventory/gzip/wrapper integrity checks |
 | Missed upload recovery | Fresh full capture with current configuration and a new run ID; old queued retries converted; historical copies unchanged |
 | History clearing | Administrator-only per-category controls; backup visibility reset without deleting files/retention metadata; pending alerts preserved |
 | Providers | Google My Drive/Shared Drives, OneDrive Personal/Business, explicit SharePoint libraries, SFTP and S3-compatible adapters |

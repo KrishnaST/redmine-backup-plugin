@@ -56,7 +56,7 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 </tr>
 <tr>
 <td>Packaging</td>
-<td>Separate components or a single ZIP/ZIP64; no 7z</td>
+<td>Single TAR.GZ (recommended), separate components or a single ZIP/ZIP64; no 7z</td>
 </tr>
 <tr>
 <td>Encryption</td>
@@ -103,7 +103,9 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 
 <h2 id="plan-label-Packaging+and+upload"><a href="#plan-label-Packaging+and+upload">Packaging and upload</a></h2>
 
-<p>One remote backup folder per run is the default. Single-ZIP mode places the five components inside one top-level backup folder in the ZIP, uploads the named archive directly in the destination root, and checks the resulting archive. Already compressed components are stored without recompression. Recovery after a missed/failed backup/upload takes a new full backup. Bounded chunk retries within an active run can resume that run’s upload; a restarted recovery run never borrows old sessions or artifacts.</p>
+<p>Single-TAR.GZ mode places application/attachment/external paths, the database dump and recovery metadata directly in one named top-level folder inside <code>&lt;backup-folder&gt;.tar.gz</code>. It streams application files once, verifies the gzip trailer, file hashes, manifest inventory and safe links, and uploads the archive directly in the destination root. No application archive is nested within it. The whole-archive checksum and verified completion marker stay outside the archive to avoid circular hashes.</p>
+
+<p>Existing saved packaging settings are preserved; select TAR.GZ explicitly for new captures. One remote backup folder per run remains the initial default. Single-ZIP mode places the five legacy components inside one top-level backup folder in a ZIP, uploading the named archive directly in the destination root; already compressed components are stored without recompression. Recovery after a missed/failed backup/upload takes a new full backup. Bounded chunk retries within an active run can resume that run’s upload; a restarted recovery run never borrows old sessions or artifacts.</p>
 
 <p>Adapters cover Google My Drive/Shared Drives, OneDrive Personal/Business, SharePoint document libraries, SFTP and S3-compatible endpoints. Authentication choices and provider prerequisites are indexed in <a href="AUTHENTICATION_md.html">provider authentication</a>. Other Ruby-capable services are cataloged as future adapters, not implied implemented support. Authentication, resumability, integrity checks and ownership-scoped retention are provider-specific. A completion marker is published only after all required artifacts verify.</p>
 
@@ -155,7 +157,7 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 </li><li>
 <p>Open <strong>Administration → Backups</strong>. Choose a persistent, non-public local directory before creating the first backup. Its default is <code>redmine-backups</code> under attachment storage. The existing parent must be writable by the Redmine account.</p>
 </li><li>
-<p>Configure destinations, retention and notification users/groups. If PostgreSQL tools are not on PATH, set PostgreSQL bin directory, such as <code>/usr/pgsql-18/bin</code> or <code>C:\Program Files\PostgreSQL\18\bin</code>. Windows <code>.exe</code> suffixes are selected automatically. Add external configuration paths not found through Redmine environment references. Linux service files are optional discovery sources when present, not a runtime dependency.</p>
+<p>Configure destinations, retention and notification users/groups. Choose <strong>Single TAR.GZ (recommended)</strong> under Packaging for a single archive with direct application/database/recovery contents; existing packaging settings are preserved until changed. If PostgreSQL tools are not on PATH, set PostgreSQL bin directory, such as <code>/usr/pgsql-18/bin</code> or <code>C:\Program Files\PostgreSQL\18\bin</code>. Windows <code>.exe</code> suffixes are selected automatically. Add external configuration paths not found through Redmine environment references. Linux service files are optional discovery sources when present, not a runtime dependency.</p>
 </li><li>
 <p>Complete storage authorization using the displayed callback and <strong>Save settings and connect storage account</strong>. Installation does not authorize an account. See <a href="AUTHENTICATION_md.html">provider authentication</a>.</p>
 </li><li>
@@ -287,7 +289,13 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 
 <p>Locked cleanup shows Deferred Locked. It does not invalidate a verified upload. Noncurrent versions and deleted-marker history may remain subject to provider lifecycle policies. S3-compatible endpoints do not automatically support AWS’s versioning/Object Lock APIs; capability failures are reported.</p>
 
-<h2 id="configuration-label-Backup+folders+and+ZIP+layout"><a href="#configuration-label-Backup+folders+and+ZIP+layout">Backup folders and ZIP layout</a></h2>
+<h2 id="configuration-label-Packaging+and+archive+layout"><a href="#configuration-label-Packaging+and+archive+layout">Packaging and archive layout</a></h2>
+
+<p>Choose <strong>Single TAR.GZ (recommended)</strong> for one <code>&lt;backup-folder&gt;.tar.gz</code> directly in the destination root. Inside it, <code>&lt;backup-folder&gt;/</code> contains <code>application/</code>, referenced <code>attachments/</code>, applicable <code>external/N/</code> paths, <code>database.dump</code>, <code>bootstrap.json</code>, <code>manifest.json</code> and <code>RECOVERY.md</code>. There is no nested <code>application.tar.gz</code> or ZIP wrapper. Application/attachment files stream directly into the archive with Ruby TAR/Zlib; no external archiving executable or additional gem is required. Gzip uses the existing Zlib default compression. The PostgreSQL custom dump retains its own database compression.</p>
+
+<p>The format-2 manifest records each application/attachment file and the database/bootstrap/guide checksums, plus safe relative symlinks. The archive’s own checksum is recorded outside it in private run state and the verified remote completion marker; the manifest does not hash itself or its enclosing archive. The standalone verifier can check the TAR.GZ before extraction and its manifest after extraction. A small <code>&lt;backup-folder&gt;-complete.json</code> remains beside the archive for verified completion and retention; it is not another backup payload.</p>
+
+<p>Existing saved packaging settings and previously created backups are unchanged. Select and save TAR.GZ explicitly to use it for subsequent captures. Folder and ZIP remain supported for older workflows, and retention recognizes all three layouts together.</p>
 
 <p><strong>One backup folder</strong> uploads each complete set into a separate directory beneath the configured destination. Its name combines the installation ID and unique timestamp/run ID, preventing collisions between installations. It contains <code>database.dump</code>, <code>application.tar.gz</code>, <code>bootstrap.json</code>, <code>RECOVERY.md</code>, <code>manifest.json</code> and a verified <code>complete.json</code> marker. On S3-compatible storage the directory is an object-key prefix; SFTP creates one private child directory in the configured existing destination.</p>
 
@@ -589,7 +597,14 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 
 <h2 id="recovery-label-1.+Select+and+verify"><a href="#recovery-label-1.+Select+and+verify">1. Select and verify</a></h2>
 
-<p>Choose a complete verified recovery set. In folder mode download the complete backup folder; in ZIP mode download its named ZIP. Unpack ZIP into a new private staging directory after checking that entry names contain no absolute paths or parent traversal. The ZIP contains one top-level backup folder holding <code>manifest.json</code>, <code>database.dump</code>, <code>application.tar.gz</code>, <code>bootstrap.json</code> and this guide. Set <code>BACKUP_ROOT</code> to the directory containing those five components; for older flat ZIPs this is the extraction directory itself.</p>
+<p>Choose a complete verified recovery set. In TAR.GZ mode download its named archive and use a trusted copy of this plugin’s standalone verifier before extraction:</p>
+
+<pre>ruby bin/redmine-backup-verify /private/download/BACKUP_FOLDER.tar.gz
+tar -xzf /private/download/BACKUP_FOLDER.tar.gz -C /private/staging</pre>
+
+<p>Create the empty private staging directory first, using restricted POSIX permissions or Windows ACLs. These Ruby and TAR commands also work from Windows PowerShell with the corresponding quoted paths. The verifier scans without extracting and rejects unsafe names/links, duplicate/unexpected entries, missing content, hash mismatches and invalid gzip trailers. TAR.GZ contains one top-level backup folder holding <code>application/</code>, <code>attachments/</code>, applicable <code>external/N/</code>, <code>manifest.json</code>, <code>database.dump</code>, <code>bootstrap.json</code> and this guide. There is no nested application archive. Set <code>BACKUP_ROOT</code> to that top-level folder after extraction.</p>
+
+<p>For older folder mode download the complete backup folder; for ZIP mode download its named ZIP. Unpack ZIP into new private staging after checking entry names for absolute paths or parent traversal. Legacy ZIP/folder sets contain <code>manifest.json</code>, <code>database.dump</code>, <code>application.tar.gz</code>, <code>bootstrap.json</code> and this guide. Set <code>BACKUP_ROOT</code> to their containing folder; for older flat ZIPs this is the extraction directory itself.</p>
 
 <p>Run the repository’s standalone verifier with Ruby:</p>
 
@@ -597,13 +612,13 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 ruby bin/redmine-backup-verify &quot;$BACKUP_ROOT/manifest.json&quot;
 pg_restore --list &quot;$BACKUP_ROOT/database.dump&quot; &gt;/dev/null</pre>
 
-<p>The verifier checks file sizes and SHA256 against the manifest. The dump catalog check does not prove successful restore. The manifest records source roots and external-file archive mappings. Never publish <code>bootstrap.json</code>: it includes private database/provider configuration and Rails key material, because archive encryption was deliberately not requested.</p>
+<p>The verifier checks file sizes and SHA256 against the manifest. Format 2 verifies individual application/attachment files and relative symlinks, while legacy format 1 verifies its component archives. The enclosing TAR.GZ checksum is kept in the remote completion marker/private run state rather than inside its own manifest. The dump catalog check does not prove successful restore. The manifest records source roots and external-file archive mappings. Never publish <code>bootstrap.json</code>: it includes private database/provider configuration and Rails key material, because archive encryption was deliberately not requested.</p>
 
 <h2 id="recovery-label-2.+Rebuild+the+environment"><a href="#recovery-label-2.+Rebuild+the+environment">2. Rebuild the environment</a></h2>
 
 <p>Provision Linux, Windows or macOS with matching supported Ruby, Redmine/Rails, PostgreSQL clients/server and application dependencies using the captured version metadata and lockfile. An OS change may require different native gems and executable paths; review it explicitly. Provision the Redmine account, private POSIX modes or Windows ACLs, required environment and database role. Recreate role privileges deliberately; this is a single-database dump, not a whole-cluster/global-role backup.</p>
 
-<p>Restore the application archive into private staging, not directly over an operating installation. Inspect archive member names, symlinks and <code>external_roots</code> before extraction. <code>application/</code> maps to the Redmine root, <code>attachments/</code> maps to its attachment storage, and each <code>external/N/</code> maps to the corresponding external root in the manifest. Restore external state/configuration/service files to reviewed locations with appropriate ownership and modes. Preserve Rails secret/key material and SMTP private state together; without matching keys, encrypted settings/grants cannot be decrypted.</p>
+<p>In TAR.GZ mode the application directories are already in staging. For legacy sets, inspect and extract <code>application.tar.gz</code> into private staging, not directly over an operating installation. Inspect member names, symlinks and <code>external_roots</code> before restoring. <code>application/</code> maps to the Redmine root, <code>attachments/</code> maps to its attachment storage, and each <code>external/N/</code> maps to the corresponding external root in the manifest. Restore external state/configuration/service files to reviewed locations with appropriate ownership and modes. Preserve Rails secret/key material and SMTP private state together; without matching keys, encrypted settings/grants cannot be decrypted.</p>
 
 <p>Install the plugin if not already captured and install compatible locked dependencies. Set Recovery Mode before starting Redmine: its worker is automatically managed with the application. Restore target-platform permissions deliberately; TAR modes are not a Windows ACL image.</p>
 
@@ -895,7 +910,7 @@ pg_restore --list &quot;$BACKUP_ROOT/database.dump&quot; &gt;/dev/null</pre>
 <section id="implementation" aria-label="Implementation"><span id="implementation-top"></span>
 <h1 id="implementation-label-Implementation+coverage"><a href="#implementation-label-Implementation+coverage">Implementation coverage</a></h1>
 
-<p>Current native plugin version: 0.3.1. This describes source implementation, not proof of live provider authorization or a successful restore.</p>
+<p>Current native plugin version: 0.5.0. This describes source implementation, not proof of live provider authorization or a successful restore.</p>
 
 <table role="table">
 <thead>
@@ -955,7 +970,7 @@ pg_restore --list &quot;$BACKUP_ROOT/database.dump&quot; &gt;/dev/null</pre>
 </tr>
 <tr>
 <td>Packaging</td>
-<td>One owned remote folder per run, or a named ZIP64 with one top-level backup folder; component/wrapper integrity checks</td>
+<td>Single streamed TAR.GZ with direct application/database/recovery contents; legacy owned folders and ZIP64 remain supported; file/inventory/gzip/wrapper integrity checks</td>
 </tr>
 <tr>
 <td>Missed upload recovery</td>
@@ -1082,6 +1097,10 @@ pg_restore --list &quot;$BACKUP_ROOT/database.dump&quot; &gt;/dev/null</pre>
 </section>
 <section id="validation" aria-label="Validation"><span id="validation-top"></span>
 <h1 id="validation-label-Validation"><a href="#validation-label-Validation">Validation</a></h1>
+
+<p>Version 0.5.0 local Windows validation on 15 November 2026 passed 202 tests / 766 assertions, with zero failures/errors/skips on Ruby 4.0.9. New coverage verifies direct TAR.GZ application/attachment/database/metadata contents, Unicode paths, external configuration, checksum validation before and after extraction, gzip CRC and concatenation rejection, missing/unexpected/duplicate/traversal entries, unsafe links, standalone verifier compatibility with older manifests, root-level archive upload naming and retention of mixed historical ZIP/TAR layouts. Capture uses Ruby streaming TAR/Zlib without a nested application archive or a new dependency. Existing packaging choices remain unchanged until explicitly saved as TAR.GZ.</p>
+
+<p>New real PostgreSQL/TAR capture and UI cases are included in <code>test/redmine_integration.rb</code>. Check the 0.5.0 revision’s CI and installed-instance evidence before relying on the new format. A full restore drill remains required; historical 0.4.x CI/deployment results below do not validate TAR.GZ capture.</p>
 
 <p>Version 0.4.0 local Windows result on 15 November 2026: 193 independent unit tests, 725 assertions, zero failures/errors/skips on portable Ruby 4.0.9. Ruby syntax, workflow YAML indentation, offline-document generation, JavaScript syntax and documentation-link checks passed. Provider-form regression checks cover disabled irrelevant inputs, authentication changes and optional secondary storage. Adapter tests cover Google service-account/delegation RS256 assertions, Microsoft PS256 certificate assertions, OAuth renewal, client secrets, rotating workload/OBO assertion files, managed-identity endpoint constraints, legacy ROPC, imported-token expiry, explicit SharePoint drive routing and S3/SFTP options without contacting providers. Device tests cover user/settings binding, polling intervals, encrypted pending state, replay rejection and busy-worker retry without duplicate folder creation. RDoc is an explicit standalone test/documentation dependency and is not injected into Redmine’s production dependency set.</p>
 

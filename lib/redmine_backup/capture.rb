@@ -5,6 +5,9 @@ require 'pathname'
 require 'rubygems/package'
 require 'zlib'
 
+require_relative 'backup_verification_service'
+require_relative 'prefixed_tar_writer'
+
 module RedmineBackup
   class Capture
     def initialize(config:, store:, application_root:, attachment_root:, database:, secret_key:, runner: nil)
@@ -31,34 +34,53 @@ module RedmineBackup
       FileUtils.mkdir_p(destination, mode: 0o700)
       @resources.check!
       dump = File.join(destination, 'database.dump')
-      archive = File.join(destination, 'application.tar.gz')
-      manifest = { 'format' => 1, 'id' => run['id'], 'date' => run['date'], 'installation_id' => run['installation_id'],
+      single_archive = @config['packaging'] == 'tar_gz'
+      archive = File.join(destination, single_archive ? 'backup.tar.gz' : 'application.tar.gz')
+      manifest = { 'format' => single_archive ? 2 : 1, 'id' => run['id'], 'date' => run['date'], 'installation_id' => run['installation_id'],
                    'backup_folder' => BackupLayout.folder_name(run), 'packaging' => @config['packaging'],
                    'created_at' => Time.now.utc.iso8601, 'plugin_version' => VERSION,
                    'ruby_version' => RUBY_VERSION, 'platform' => RUBY_PLATFORM, 'rails_version' => defined?(Rails) ? Rails.version : nil,
                    'redmine_version' => defined?(Redmine::VERSION) ? Redmine::VERSION.to_s : nil,
                    'application_root' => @application_root, 'attachment_root' => @attachment_root,
                    'sources' => sources, 'gateway_included' => false, 'files' => [], 'artifacts' => [] }
-      capture_snapshot(dump, archive, manifest)
-      @runner.call([tool('pg_restore'), '--list', dump])
+      capture_snapshot(dump, archive, manifest, prefix: single_archive ? manifest['backup_folder'] : nil) do |tar|
+        next unless single_archive
+        write_metadata(destination, manifest)
+        (manifest['artifacts'].map { |item| item['name'] } + ['manifest.json']).each do |name|
+          add_file(tar, File.join(destination, name), name)
+        end
+      end
+      write_metadata(destination, manifest) unless single_archive
+      yield if block_given?
+      package(run)
+    end
+
+    def write_metadata(destination, manifest)
       @store.atomic(File.join(destination, 'bootstrap.json'), JSON.pretty_generate(
-        'config' => @config.values, 'installation_id' => run['installation_id'],
+        'config' => @config.values, 'installation_id' => manifest['installation_id'],
         'database' => @database, 'secret_key_base' => @secret_key, 'recovery_mode_required' => true,
         'private_state' => %w[metadata audit runs coverage secrets].to_h { |name| [name, @store.read(name, name == 'metadata' || name == 'secrets' ? {} : [])] }
       ))
       guide = File.read(File.expand_path('../../documentation/RECOVERY.md', __dir__))
       @store.atomic(File.join(destination, 'RECOVERY.md'), guide)
-      %w[database.dump application.tar.gz bootstrap.json RECOVERY.md].each do |name|
+      payloads = %w[database.dump bootstrap.json RECOVERY.md]
+      payloads << 'application.tar.gz' if manifest['format'] == 1
+      payloads.each do |name|
         path = File.join(destination, name)
         manifest['artifacts'] << { 'name' => name, 'bytes' => File.size(path), 'sha256' => Digest::SHA256.file(path).hexdigest }
       end
       @store.atomic(File.join(destination, 'manifest.json'), JSON.pretty_generate(manifest))
-      yield if block_given?
-      package(run)
     end
+
+    private :write_metadata
 
     def package(run)
       destination = @store.run_path(run.fetch('id'))
+      if @config['packaging'] == 'tar_gz'
+        path = File.join(destination, 'backup.tar.gz')
+        BackupVerificationService.verify_archive(path, expected_folder: BackupLayout.folder_name(run), check: -> { @resources.check! })
+        return [{ 'name' => 'backup.tar.gz', 'bytes' => File.size(path), 'sha256' => Digest::SHA256.file(path).hexdigest }]
+      end
       manifest = JSON.parse(File.read(File.join(destination, 'manifest.json')))
       @resources.check!(manifest.fetch('artifacts').sum { |item| item['bytes'] }) if @config['packaging'] == 'zip'
       manifest.fetch('artifacts').each do |item|
@@ -102,7 +124,7 @@ module RedmineBackup
 
     private
 
-    def capture_snapshot(dump, archive, manifest)
+    def capture_snapshot(dump, archive, manifest, prefix: nil)
       raise Error, 'POSTGRESQL_REQUIRED' unless @database['adapter'] == 'postgresql'
       connection = PG.connect(pg_options)
       connection.exec('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
@@ -114,9 +136,14 @@ module RedmineBackup
       snapshot = connection.exec('SELECT pg_export_snapshot()').getvalue(0, 0)
       manifest['postgresql_version'] = connection.exec('SHOW server_version').getvalue(0, 0)
       @runner.call([tool('pg_dump'), '--format=custom', '--no-password', "--snapshot=#{snapshot}"], env: pg_environment, output: dump, check: -> { @resources.check! })
+      @runner.call([tool('pg_restore'), '--list', dump])
       @resources.check!
       Zlib::GzipWriter.open(archive) do |gzip|
         Gem::Package::TarWriter.new(gzip) do |tar|
+          if prefix
+            tar.mkdir(prefix, 0o700)
+            tar = PrefixedTarWriter.new(tar, prefix)
+          end
           archive_sources(tar, manifest)
           quoted = PG::Connection.quote_ident(table)
           connection.exec("DECLARE backup_attachments NO SCROLL CURSOR FOR SELECT id, disk_directory, disk_filename, filesize, digest FROM #{quoted}")
@@ -137,6 +164,7 @@ module RedmineBackup
               manifest['files'] << item.merge('attachment_id' => row['id'])
             end
           end
+          yield tar if block_given?
         end
       end
     rescue Errno::ENOENT
@@ -161,7 +189,12 @@ module RedmineBackup
             raise Error, 'REPARSE_SOURCE_REQUIRES_EXPLICIT_COVERAGE' unless File.symlink?(path)
             resolved = File.realpath(path)
             raise Error, 'EXTERNAL_SYMLINK_REQUIRES_EXPLICIT_COVERAGE' unless PlatformService.within?(resolved, root) && !excluded?(resolved)
-            tar.add_symlink(name, File.readlink(path), File.lstat(path).mode & 0o777)
+            target = File.readlink(path)
+            if manifest['format'] == 2
+              target = Pathname.new(resolved).relative_path_from(Pathname.new(File.dirname(path))).to_s.tr('\\', '/')
+              (manifest['links'] ||= []) << { 'path' => name, 'target' => target }
+            end
+            tar.add_symlink(name, target, File.lstat(path).mode & 0o777)
           elsif File.directory?(path)
             tar.mkdir(name, File.stat(path).mode & 0o777)
           elsif File.file?(path)

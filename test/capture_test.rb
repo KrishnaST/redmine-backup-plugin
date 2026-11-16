@@ -1,8 +1,12 @@
 # frozen_string_literal: true
 
 require_relative 'test_helper'
+require 'open3'
 require 'pg'
+require 'rbconfig'
 require 'zip'
+
+require_relative '../lib/redmine_backup/backup_verification_service'
 
 class CaptureTest < BackupTest
   class Rows < Array
@@ -142,6 +146,144 @@ class CaptureTest < BackupTest
     calls = @tools.calls.length
     capture(settings).package(@run)
     assert_equal calls, @tools.calls.length
+  end
+
+  def tar_contents
+    contents = {}
+    Zlib::GzipReader.open(File.join(@store.run_path(@run['id']), 'backup.tar.gz')) do |gzip|
+      Gem::Package::TarReader.new(gzip) do |tar|
+        tar.each { |entry| contents[entry.full_name] = entry.read if entry.file? }
+      end
+    end
+    contents
+  end
+
+  def rewrite_tar(contents)
+    path = File.join(@store.run_path(@run['id']), 'backup.tar.gz')
+    Zlib::GzipWriter.open(path) do |gzip|
+      Gem::Package::TarWriter.new(gzip) do |tar|
+        contents.each do |name, bytes|
+          tar.add_file_simple(name, 0o600, bytes.bytesize) { |output| output.write(bytes) }
+        end
+      end
+    end
+    path
+  end
+
+  def test_single_tar_contains_application_and_recovery_files_without_nested_archives
+    File.write(File.join(@attachments, 'orphan'), 'unreferenced')
+    settings = config('packaging' => 'tar_gz')
+    payloads = perform(settings)
+    assert_equal ['backup.tar.gz'], payloads.map { |item| item['name'] }
+    folder = RedmineBackup::BackupLayout.folder_name(@run)
+    contents = tar_contents
+    %w[database.dump bootstrap.json manifest.json RECOVERY.md application/custom.rb application/Gemfile.lock attachments/2026/file.bin].each do |name|
+      assert contents.key?("#{folder}/#{name}"), name
+    end
+    refute contents.keys.any? { |name| name.end_with?('application.tar.gz', 'backup.zip') || name.include?('orphan') || name.include?('redmine-backups') }
+    manifest = JSON.parse(contents.fetch("#{folder}/manifest.json"))
+    assert_equal 2, manifest['format']
+    assert_equal %w[RECOVERY.md bootstrap.json database.dump], manifest['artifacts'].map { |item| item['name'] }.sort
+    assert_equal 'payload', contents.fetch("#{folder}/attachments/2026/file.bin")
+    calls = @tools.calls.length
+    assert_equal payloads, capture(settings).package(@run)
+    assert_equal calls, @tools.calls.length
+  end
+
+  def test_single_tar_can_be_verified_after_extraction_and_detects_modified_application
+    perform(config('packaging' => 'tar_gz'))
+    stage = File.join(@temporary, 'staging')
+    tar_contents.each do |name, bytes|
+      path = File.join(stage, name)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.binwrite(path, bytes)
+    end
+    root = File.join(stage, RedmineBackup::BackupLayout.folder_name(@run))
+    assert RedmineBackup::BackupVerificationService.verify_manifest(File.join(root, 'manifest.json'))
+    File.write(File.join(root, 'application', 'custom.rb'), 'modified')
+    assert_raises(RedmineBackup::Error) { RedmineBackup::BackupVerificationService.verify_manifest(File.join(root, 'manifest.json')) }
+  end
+
+  def test_single_tar_verification_rejects_tampered_files_and_folder_identity
+    perform(config('packaging' => 'tar_gz'))
+    contents = tar_contents
+    folder = RedmineBackup::BackupLayout.folder_name(@run)
+    contents["#{folder}/application/custom.rb"] = 'tampered'
+    path = rewrite_tar(contents)
+    assert_raises(RedmineBackup::Error) { RedmineBackup::BackupVerificationService.verify_archive(path) }
+    assert_raises(RedmineBackup::Error) { RedmineBackup::BackupVerificationService.verify_archive(path, expected_folder: 'wrong-folder') }
+  end
+
+  def test_single_tar_verification_rejects_missing_extra_duplicate_and_unsafe_entries
+    perform(config('packaging' => 'tar_gz'))
+    original = tar_contents
+    folder = RedmineBackup::BackupLayout.folder_name(@run)
+    missing = original.reject { |name, _| name.end_with?('/database.dump') }
+    extra = original.merge("#{folder}/unknown" => 'unexpected')
+    traversal = original.merge("#{folder}/../escape" => 'unsafe')
+    duplicate = original.to_a + [original.first]
+    [missing, extra, traversal, duplicate].each do |contents|
+      path = rewrite_tar(contents)
+      assert_raises(RedmineBackup::Error) { RedmineBackup::BackupVerificationService.verify_archive(path) }
+    end
+  end
+
+  def test_single_tar_checks_gzip_trailer_integrity
+    perform(config('packaging' => 'tar_gz'))
+    path = File.join(@store.run_path(@run['id']), 'backup.tar.gz')
+    bytes = File.binread(path)
+    bytes.setbyte(-5, bytes.getbyte(-5) ^ 1)
+    File.binwrite(path, bytes)
+    assert_raises(RedmineBackup::Error) { RedmineBackup::BackupVerificationService.verify_archive(path) }
+  end
+
+  def test_single_tar_preserves_unicode_names_and_external_configuration
+    File.write(File.join(@app, 'café.rb'), 'unicode path')
+    external = File.join(@temporary, 'service.env')
+    File.write(external, 'FIXTURE=value')
+    perform(config('packaging' => 'tar_gz', 'additional_paths' => [external]))
+    manifest = JSON.parse(File.read(File.join(@store.run_path(@run['id']), 'manifest.json')))
+    assert manifest['files'].any? { |item| item['path'] == 'application/café.rb' }
+    assert manifest['files'].any? { |item| item['path'].end_with?('/service.env') }
+    assert_includes manifest['external_roots'], File.realpath(external)
+  end
+
+  def test_single_tar_rejects_links_outside_backup_and_concatenated_gzip_streams
+    perform(config('packaging' => 'tar_gz'))
+    contents = tar_contents
+    folder = RedmineBackup::BackupLayout.folder_name(@run)
+    path = rewrite_tar(contents)
+    safe_bytes = File.binread(path)
+    File.binwrite(path, safe_bytes + safe_bytes)
+    assert_raises(RedmineBackup::Error) { RedmineBackup::BackupVerificationService.verify_archive(path) }
+    rewrite_tar(contents)
+    Zlib::GzipWriter.open(path) do |gzip|
+      Gem::Package::TarWriter.new(gzip) { |tar| tar.add_symlink("#{folder}/application/escape", '../../outside', 0o777) }
+    end
+    assert_raises(RedmineBackup::Error) { RedmineBackup::BackupVerificationService.verify_archive(path) }
+  end
+
+  def test_standalone_verifier_accepts_both_tar_and_legacy_manifest
+    perform(config('packaging' => 'tar_gz'))
+    verifier = File.expand_path('../bin/redmine-backup-verify', __dir__)
+    directory = @store.run_path(@run['id'])
+    output, errors, status = Open3.capture3(RbConfig.ruby, verifier, File.join(directory, 'backup.tar.gz'))
+    assert status.success?, errors
+    assert_includes output, 'Backup contents verified'
+    @snapshot = Snapshot.new(@row)
+    perform
+    _output, errors, status = Open3.capture3(RbConfig.ruby, verifier, File.join(directory, 'manifest.json'))
+    assert status.success?, errors
+  end
+
+  unless Gem.win_platform?
+    def test_single_tar_preserves_safe_relative_links
+      File.symlink(File.join(@app, 'custom.rb'), File.join(@app, 'custom-link.rb'))
+      perform(config('packaging' => 'tar_gz'))
+      manifest = JSON.parse(File.read(File.join(@store.run_path(@run['id']), 'manifest.json')))
+      assert_equal [{ 'path' => 'application/custom-link.rb', 'target' => 'custom.rb' }], manifest['links']
+      assert RedmineBackup::BackupVerificationService.verify_archive(File.join(@store.run_path(@run['id']), 'backup.tar.gz'))
+    end
   end
 
   def test_packaging_rejects_modified_captured_components

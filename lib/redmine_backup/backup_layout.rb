@@ -2,7 +2,11 @@
 
 module RedmineBackup
   module BackupLayout
-    COMPONENTS = %w[database.dump application.tar.gz bootstrap.json RECOVERY.md manifest.json backup.zip complete.json].freeze
+    COMPONENTS = %w[database.dump application.tar.gz bootstrap.json RECOVERY.md manifest.json backup.zip backup.tar.gz complete.json].freeze
+
+    def self.archive_extension(packaging)
+      { 'zip' => 'zip', 'tar_gz' => 'tar.gz' }[packaging]
+    end
 
     def self.folder_name(run)
       name = "#{run.fetch('installation_id')}-#{run.fetch('id')}"
@@ -16,7 +20,7 @@ module RedmineBackup
 
     def self.owned_key?(key, namespace)
       folder = namespace.delete_suffix('-')
-      return true if key == "#{folder}.zip"
+      return true if ["#{folder}.zip", "#{folder}.tar.gz"].include?(key)
       return COMPONENTS.include?(key.delete_prefix("#{folder}/")) if key.start_with?("#{folder}/")
       key.start_with?(namespace) && !key.include?('/')
     end

@@ -4,7 +4,16 @@ This guide is included in every backup. Test it on an isolated replacement host 
 
 ## 1. Select and verify
 
-Choose a complete verified recovery set. In folder mode download the complete backup folder; in ZIP mode download its named ZIP. Unpack ZIP into a new private staging directory after checking that entry names contain no absolute paths or parent traversal. The ZIP contains one top-level backup folder holding `manifest.json`, `database.dump`, `application.tar.gz`, `bootstrap.json` and this guide. Set `BACKUP_ROOT` to the directory containing those five components; for older flat ZIPs this is the extraction directory itself.
+Choose a complete verified recovery set. In TAR.GZ mode download its named archive and use a trusted copy of this plugin's standalone verifier before extraction:
+
+```sh
+ruby bin/redmine-backup-verify /private/download/BACKUP_FOLDER.tar.gz
+tar -xzf /private/download/BACKUP_FOLDER.tar.gz -C /private/staging
+```
+
+Create the empty private staging directory first, using restricted POSIX permissions or Windows ACLs. These Ruby and TAR commands also work from Windows PowerShell with the corresponding quoted paths. The verifier scans without extracting and rejects unsafe names/links, duplicate/unexpected entries, missing content, hash mismatches and invalid gzip trailers. TAR.GZ contains one top-level backup folder holding `application/`, `attachments/`, applicable `external/N/`, `manifest.json`, `database.dump`, `bootstrap.json` and this guide. There is no nested application archive. Set `BACKUP_ROOT` to that top-level folder after extraction.
+
+For older folder mode download the complete backup folder; for ZIP mode download its named ZIP. Unpack ZIP into new private staging after checking entry names for absolute paths or parent traversal. Legacy ZIP/folder sets contain `manifest.json`, `database.dump`, `application.tar.gz`, `bootstrap.json` and this guide. Set `BACKUP_ROOT` to their containing folder; for older flat ZIPs this is the extraction directory itself.
 
 Run the repository's standalone verifier with Ruby:
 
@@ -14,13 +23,13 @@ ruby bin/redmine-backup-verify "$BACKUP_ROOT/manifest.json"
 pg_restore --list "$BACKUP_ROOT/database.dump" >/dev/null
 ```
 
-The verifier checks file sizes and SHA256 against the manifest. The dump catalog check does not prove successful restore. The manifest records source roots and external-file archive mappings. Never publish `bootstrap.json`: it includes private database/provider configuration and Rails key material, because archive encryption was deliberately not requested.
+The verifier checks file sizes and SHA256 against the manifest. Format 2 verifies individual application/attachment files and relative symlinks, while legacy format 1 verifies its component archives. The enclosing TAR.GZ checksum is kept in the remote completion marker/private run state rather than inside its own manifest. The dump catalog check does not prove successful restore. The manifest records source roots and external-file archive mappings. Never publish `bootstrap.json`: it includes private database/provider configuration and Rails key material, because archive encryption was deliberately not requested.
 
 ## 2. Rebuild the environment
 
 Provision Linux, Windows or macOS with matching supported Ruby, Redmine/Rails, PostgreSQL clients/server and application dependencies using the captured version metadata and lockfile. An OS change may require different native gems and executable paths; review it explicitly. Provision the Redmine account, private POSIX modes or Windows ACLs, required environment and database role. Recreate role privileges deliberately; this is a single-database dump, not a whole-cluster/global-role backup.
 
-Restore the application archive into private staging, not directly over an operating installation. Inspect archive member names, symlinks and `external_roots` before extraction. `application/` maps to the Redmine root, `attachments/` maps to its attachment storage, and each `external/N/` maps to the corresponding external root in the manifest. Restore external state/configuration/service files to reviewed locations with appropriate ownership and modes. Preserve Rails secret/key material and SMTP private state together; without matching keys, encrypted settings/grants cannot be decrypted.
+In TAR.GZ mode the application directories are already in staging. For legacy sets, inspect and extract `application.tar.gz` into private staging, not directly over an operating installation. Inspect member names, symlinks and `external_roots` before restoring. `application/` maps to the Redmine root, `attachments/` maps to its attachment storage, and each `external/N/` maps to the corresponding external root in the manifest. Restore external state/configuration/service files to reviewed locations with appropriate ownership and modes. Preserve Rails secret/key material and SMTP private state together; without matching keys, encrypted settings/grants cannot be decrypted.
 
 Install the plugin if not already captured and install compatible locked dependencies. Set Recovery Mode before starting Redmine: its worker is automatically managed with the application. Restore target-platform permissions deliberately; TAR modes are not a Windows ACL image.
 

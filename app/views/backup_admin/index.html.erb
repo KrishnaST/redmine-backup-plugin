@@ -25,8 +25,8 @@
     <% { 'local_keep_dates' => ['Local successful dates to keep', 1, 3650], 'remote_keep_dates' => ['Default remote successful dates to keep', 1, 3650], 'disk_reserve_mb' => ['Minimum free disk reserve (MiB)', 64, 1048576], 'timeout_seconds' => ['Capture timeout (seconds)', 60, 172800] }.each do |key, details| %>
       <p><label><%= details[0] %></label><%= number_field_tag "backup[#{key}]", @config[key], min: details[1], max: details[2], required: true %></p>
     <% end %>
-    <p><label>Packaging</label><%= select_tag 'backup[packaging]', options_for_select([['One backup folder', 'separate'], ['ZIP of backup folder', 'zip']], @config['packaging']) %></p>
-    <p class="backup-hint">Each backup has its own folder. ZIP mode uploads one named archive directly in the destination, with the backup folder inside.</p>
+    <p><label>Packaging</label><%= select_tag 'backup[packaging]', options_for_select([['Single TAR.GZ (recommended)', 'tar_gz'], ['One backup folder', 'separate'], ['ZIP of backup folder', 'zip']], @config['packaging']) %></p>
+    <p class="backup-hint">TAR.GZ puts application files, attachments, database and recovery files directly inside one named backup folder in one archive. Archive modes upload directly in the destination; a separate completion marker supports verification and retention.</p>
     <p><label>Additional Redmine paths<br>(one per line)</label><%= text_area_tag 'backup[additional_paths]', @config['additional_paths'].join("\n"), rows: 5, cols: 65 %></p>
     <p class="backup-hint">Always include external environment files, SMTP state/key directories and service definitions required for recovery. Backups contain private credentials. The archive has no added encryption.</p>
   </fieldset>

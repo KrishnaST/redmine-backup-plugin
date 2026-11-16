@@ -1,6 +1,6 @@
 # Redmine Backup
 
-Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Version 0.4.0 supports Linux, Windows and macOS platform operations and lets Redmine automatically supervise its worker. No separate backup service, OS scheduler, Redis or Sidekiq is required. A chosen-provider upload and full restore drill remain installation acceptance checks.
+Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Version 0.5.0 adds a single TAR.GZ package containing application files, attachments, database and recovery metadata directly, without a nested application archive. Linux, Windows and macOS platform operations are supported and Redmine supervises its worker. No separate backup service, OS scheduler, Redis or Sidekiq is required. A chosen-provider upload and full restore drill remain installation acceptance checks.
 
 ## Features
 
@@ -10,7 +10,7 @@ Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified 
 - Configurable retention: local successful dates, default remote successful dates, and an optional override for each destination. Defaults are 3 local / 10 remote dates; valid range 1–3650. Pending copies and the last good copy are protected.
 - Primary destination with an optional secondary, disabled by default. **Redundant** requires both verified copies. **Failover** attempts secondary only after primary retries fail.
 - Google Drive, OneDrive Personal/Business, SharePoint document libraries, SFTP and S3-compatible adapters. Resumability is provider-specific; verification uses streamed SHA256 read-back. No plugin bandwidth throttle.
-- One folder per backup or one named ZIP of that folder; verified completion markers and ownership-safe retention. No additional archive encryption. No 7z, Python, Java or rclone dependency.
+- A single TAR.GZ (recommended), one folder per backup, or one named ZIP; verified completion markers and ownership-safe retention. TAR.GZ streams application files directly and verifies all file checksums before upload. No additional archive encryption. No 7z, Python, Java or rclone dependency.
 - Startup catch-up, durable queue, process lock, heartbeat, crash reconciliation, encrypted control state, coverage-change indication and audit history.
 - Missed schedules, interrupted transfers and manual recovery take a fresh full backup using current configuration. Retry backup appears only for a failed upload on the latest run; successful uploads have no retry control. Bounded retries within an active upload can still resume chunks.
 - Storage changes clear incompatible application/folder references. Historical copies retain their original references and checksums.

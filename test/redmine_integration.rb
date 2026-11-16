@@ -95,6 +95,7 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     get '/admin/backups'
     assert_response :success
     assert_includes response.body, 'Local successful dates to keep'
+    assert_select 'select[name="backup[packaging]"] option[value="tar_gz"]', text: 'Single TAR.GZ (recommended)'
     post '/admin/backups/settings', params: { backup: { local_keep_dates: '7', remote_keep_dates: '28', time: '21:00', timezone: 'Asia/Kolkata',
                                                       primary: { provider: 'google_drive' }, secondary: { enabled: '0' } } }
     assert_response :redirect
@@ -376,5 +377,22 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
       assert zip.entries.all? { |entry| entry.name.start_with?(folder + '/') }
       assert_equal run['id'], JSON.parse(zip.read("#{folder}/manifest.json"))['id']
     end
+    tar_configuration = RedmineBackup::Configuration.new(configuration.values.merge('packaging' => 'tar_gz')).validate!
+    tar_capture = RedmineBackup::Capture.new(config: tar_configuration, store: runtime.store, application_root: application,
+                                            attachment_root: Attachment.storage_path,
+                                            database: ActiveRecord::Base.connection_db_config.configuration_hash,
+                                            secret_key: Rails.application.secret_key_base)
+    tar_run = run.merge('id' => '20261115T143100Z-abcdef123456')
+    assert_equal ['backup.tar.gz'], tar_capture.call(tar_run).map { |item| item['name'] }
+    archive = File.join(runtime.store.run_path(tar_run['id']), 'backup.tar.gz')
+    assert RedmineBackup::BackupVerificationService.verify_archive(archive, expected_folder: RedmineBackup::BackupLayout.folder_name(tar_run))
+    entries = {}
+    Zlib::GzipReader.open(archive) do |gzip|
+      Gem::Package::TarReader.new(gzip) { |tar| tar.each { |entry| entries[entry.full_name] = entry.read if entry.file? } }
+    end
+    prefix = RedmineBackup::BackupLayout.folder_name(tar_run)
+    assert_equal 'PGDMP', entries.fetch("#{prefix}/database.dump")[0, 5]
+    assert_equal 2, JSON.parse(entries.fetch("#{prefix}/manifest.json"))['format']
+    refute entries.keys.any? { |name| name.end_with?('application.tar.gz', 'backup.zip') }
   end
 end
