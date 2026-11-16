@@ -18,8 +18,8 @@ module RedmineBackup
 
     def self.offsite_satisfied?(run)
       statuses = run.fetch('destinations', {})
-      primary = statuses.dig('primary', 'verified') == true
-      secondary = statuses.dig('secondary', 'verified') == true
+      primary = statuses.dig('primary', 'verified') == true && !statuses.dig('primary', 'deleted_at')
+      secondary = statuses.dig('secondary', 'verified') == true && !statuses.dig('secondary', 'deleted_at')
       case run['secondary_mode']
       when 'redundant' then primary && secondary
       when 'failover' then primary || secondary

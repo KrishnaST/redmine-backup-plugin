@@ -1,6 +1,6 @@
 # Redmine Backup
 
-Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Version 0.5.0 adds a single TAR.GZ package containing application files, attachments, database and recovery metadata directly, without a nested application archive. Linux, Windows and macOS platform operations are supported and Redmine supervises its worker. No separate backup service, OS scheduler, Redis or Sidekiq is required. A chosen-provider upload and full restore drill remain installation acceptance checks.
+Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified uploads and configurable retention. Version 0.6.0 adds administrator-controlled deletion of remote and local copies while protecting the latest successful uploads. Single TAR.GZ packages contain application files, attachments, database and recovery metadata directly, without a nested application archive. Linux, Windows and macOS platform operations are supported and Redmine supervises its worker. No separate backup service, OS scheduler, Redis or Sidekiq is required. A chosen-provider upload and full restore drill remain installation acceptance checks.
 
 ## Features
 
@@ -15,6 +15,7 @@ Native Ruby plugin for full daily PostgreSQL and Redmine file backups, verified 
 - Missed schedules, interrupted transfers and manual recovery take a fresh full backup using current configuration. Retry backup appears only for a failed upload on the latest run; successful uploads have no retry control. Bounded retries within an active upload can still resume chunks.
 - Storage changes clear incompatible application/folder references. Historical copies retain their original references and checksums.
 - Clear backup, audit or notification history independently; backup files, retention metadata, pending work and alerts awaiting delivery are protected.
+- Delete one backup or all eligible older backups from remote storage and local disk, with confirmation and a durable worker job. The latest complete recovery point and last verified copy at each destination are protected. Provider holds, namespace checks, destination changes and deletion failures cannot silently remove the protected copy or discard pending local recovery data. Deletion results remain in history.
 - Existing Redmine mail delivery, selected existing users/groups, test notification and bounded mail retries.
 - S3 versioning/Object Lock capability checks and retention deferral. Equivalent protection is not assumed for other providers.
 - Offline recovery manifest, private bootstrap and recovery guide. Gateway applications/certificates/services are excluded.
@@ -26,6 +27,8 @@ See the [hosted installation and configuration guide](https://krishnast.github.i
 Clone into `REDMINE_ROOT/plugins/redmine_backup_plugin`, run `bundle install` from the Redmine root after reviewing dependency resolution, restart Redmine, then configure **Administration → Backups**. No plugin schema migrations are needed: Redmine stores the non-secret plugin settings and this plugin uses private encrypted filesystem state for queue, credentials and history.
 
 Redmine starts and monitors a dedicated Ruby child process with its own application/database connections, using the same account, environment and Rails key. The supervisor performs no database work in a preloaded web-server master. A private OS process lock elects one worker before Rails loads, including clustered/preloaded web servers. A failed child is restarted; shutdown closes its control pipe, interrupts active work and stops dump subprocesses. The durable queue recovers interrupted work with a fresh backup. Web requests perform no backup I/O.
+
+Manual deletion uses administrator-only, CSRF-protected `POST /admin/backups/delete` (`run_id` for one backup or explicit `scope=older` for a snapshot of eligible runs). It queues work rather than making storage requests in HTTP controllers. Interrupted deletion resumes its original object journal, while interrupted backup/upload recovery takes a fresh capture. No new environment variables, production gems or external services are required. See [manual deletion rules](documentation/CONFIGURATION.md#manual-storage-deletion).
 
 Startup is automatic for Puma and `rails server`; other Rack hosts activate management on the first request. The worker lives while Redmine lives. No web request is required for subsequent schedule evaluation. Existing OS services may host Redmine itself, but the plugin never invokes a service manager. Remove obsolete version 0.3.x backup-worker services after validating the managed heartbeat; see [installation](documentation/INSTALLATION.md).
 
@@ -73,4 +76,4 @@ ruby tools/check_sources.rb
 
 The independent unit suite uses mocked transports/snapshot connections and temporary local data. Optional PostgreSQL integration uses only a dedicated disposable test database; see [validation instructions](documentation/VALIDATION.md). Tests do not send operational email or contact production cloud accounts.
 
-GPL-2.0-or-later. See [LICENSE](LICENSE).
+Original plugin code and documentation are dedicated to the public domain under **CC0-1.0 (Creative Commons Zero 1.0 Universal)**. See [LICENSE](LICENSE) and [licensing scope](documentation/LICENSING.md). Copied Redmine reference files, Redmine itself and third-party dependencies retain their original licenses.

@@ -19,7 +19,7 @@ module RedmineBackup
       key = "#{run['id']}:#{code}"
       return if pending.any? { |item| item['key'] == key }
       history = @store.read('runs', [])
-      local = history.select { |entry| entry['captured'] }.max_by { |entry| entry['completed_at'] }
+      local = history.select { |entry| entry['captured'] && !entry['local_deleted'] }.max_by { |entry| entry['completed_at'] }
       remote = history.select { |entry| Retention.offsite_satisfied?(entry) }.max_by { |entry| entry['completed_at'] }
       pending << { 'key' => key, 'run_id' => run['id'], 'code' => code, 'at' => Time.now.utc.iso8601,
                    'last_local' => local&.fetch('completed_at'), 'last_remote' => remote&.fetch('completed_at'),

@@ -3,6 +3,9 @@
 module RedmineBackup
   class RunStatusService
     def self.upload_label(run)
+      return 'Deleted from remote and local storage' if run.dig('deletion', 'status') == 'complete'
+      return 'Storage deletion in progress' if run.dig('deletion', 'status') == 'deleting'
+      return 'Storage deletion incomplete; review error' if run.dig('deletion', 'status') == 'failed'
       case run['status']
       when 'complete', 'failover_used'
         return 'Upload not verified' unless Retention.offsite_satisfied?(run)
@@ -21,6 +24,7 @@ module RedmineBackup
     end
 
     def self.retryable?(run)
+      return false if run['deletion']
       %w[upload_failed partially_protected].include?(run['status'])
     end
   end

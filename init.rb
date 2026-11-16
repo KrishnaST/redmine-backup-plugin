@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+# SPDX-License-Identifier: CC0-1.0
 
 require_relative 'lib/redmine_backup'
 require_relative 'lib/redmine_backup/homepage_hook'

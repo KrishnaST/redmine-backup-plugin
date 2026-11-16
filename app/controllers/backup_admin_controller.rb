@@ -11,6 +11,11 @@ class BackupAdminController < ApplicationController
     @config = @runtime.config
     @runs = RedmineBackup::HistoryService.new(@runtime.store).visible_runs.reverse.first(100)
     @latest_run_id = @runtime.store.read('runs', []).last&.fetch('id')
+    policy = RedmineBackup::BackupDeletionPolicy.new(@runtime.store)
+    @deletable_run_ids = policy.eligible_ids
+    @protected_run_ids = policy.protected_ids(@runtime.store.read('runs', []))
+    @pending_deletion_ids = (@runtime.store.read('queue', []) + [@runtime.store.read('active_job')])
+                            .select { |job| job['kind'] == 'delete_backups' }.flat_map { |job| Array(job['run_ids']) }
     @health = @runtime.health
     @users = User.active.sorted
     @groups = Group.where(type: 'Group').order(:lastname)
@@ -51,6 +56,16 @@ class BackupAdminController < ApplicationController
   def clear_history
     RedmineBackup::HistoryService.new(@runtime.store).clear!(params.require(:category).to_s, actor: User.current.id.to_s)
     flash[:notice] = 'History cleared. Backup files, retention records, pending jobs and unsent alerts are preserved.'
+    redirect_to redmine_backups_path
+  rescue RedmineBackup::Error => error
+    flash[:error] = safe_error(error)
+    redirect_to redmine_backups_path
+  end
+
+  def delete_backups
+    raise RedmineBackup::Error, 'INVALID_DELETION_SCOPE' unless params[:run_id].present? || params[:scope] == 'older'
+    RedmineBackup::BackupDeletionService.new(@runtime).enqueue!(run_id: params[:run_id].presence, actor: User.current.id.to_s)
+    flash[:notice] = 'Deletion queued for remote and local copies. The latest successful uploads are protected and history is retained.'
     redirect_to redmine_backups_path
   rescue RedmineBackup::Error => error
     flash[:error] = safe_error(error)

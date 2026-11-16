@@ -43,6 +43,10 @@ module RedmineBackup
 
       def close; end
 
+      def reference_exists?(_reference)
+        raise Error, 'PROVIDER_EXISTENCE_CHECK_REQUIRED'
+      end
+
       def prepare_run(name, reference = nil)
         BackupLayout.validate_folder!(name)
         assert_folder!(reference, name) if reference
@@ -75,6 +79,14 @@ module RedmineBackup
     end
 
     class S3 < Base
+      def reference_exists?(reference)
+        return true if reference['name'] && !reference['key']
+        @client.head_object(**object_options(reference))
+        true
+      rescue Aws::S3::Errors::NotFound, Aws::S3::Errors::NoSuchKey
+        false
+      end
+
       def initialize(target, checkpoint: nil)
         super
         require 'aws-sdk-s3'
@@ -335,6 +347,17 @@ module RedmineBackup
         path = reference.fetch('path')
         raise Error, 'FOREIGN_OBJECT_REFERENCE' unless path.start_with?(@directory + '/') && !path.split('/').include?('..')
         raise Error, 'FOREIGN_OBJECT_REFERENCE' unless BackupLayout.owned_key?(path.delete_prefix(@directory + '/'), namespace)
+      end
+
+      def reference_exists?(reference)
+        path = reference.fetch('path')
+        raise Error, 'SFTP_DELETE_OUTSIDE_NAMESPACE' unless path.start_with?(@directory + '/') && !path.split('/').include?('..')
+        attributes = @sftp.lstat!(path)
+        raise Error, 'UNSAFE_BACKUP_REFERENCE' if attributes.symlink?
+        true
+      rescue Net::SFTP::StatusException => error
+        raise unless error.code == 2
+        false
       end
     end
   end

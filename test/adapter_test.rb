@@ -48,6 +48,59 @@ class AdapterTest < BackupTest
     assert_equal({}, checkpoints.last[1])
   end
 
+  def test_cloud_reference_existence_distinguishes_missing_objects_from_permission_errors
+    %w[google_drive onedrive onedrive_personal sharepoint].each do |kind|
+      provider = RedmineBackup::Providers::CloudDrive.new({ 'provider' => kind, 'drive_id' => 'drive',
+        'access_token' => 'fixture', 'expires_at' => Time.now.to_i + 3600 })
+      http = FakeHttp.new([response(200, 'id' => 'fixture'), response(404), response(403)])
+      http.define_singleton_method(:json!) { |item, **options| RedmineBackup::Providers::Http.new.json!(item, **options) }
+      provider.instance_variable_set(:@http, http)
+      assert provider.reference_exists?('id' => 'fixture')
+      refute provider.reference_exists?('id' => 'fixture')
+      error = assert_raises(RedmineBackup::Error) { provider.reference_exists?('id' => 'fixture') }
+      assert_equal 'PROVIDER_HTTP_403', error.message
+    end
+  end
+
+  def test_s3_reference_existence_is_version_specific_and_does_not_hide_access_denied
+    client = Aws::S3::Client.new(stub_responses: true, region: 'us-east-1')
+    provider = nil
+    Aws::S3::Client.stub(:new, client) { provider = RedmineBackup::Providers::S3.new({ 'bucket' => 'fixture' }) }
+    reference = { 'key' => 'backup.tar.gz', 'version_id' => 'exact-version' }
+    assert provider.reference_exists?(reference)
+    assert_equal 'exact-version', client.api_requests.last[:params][:version_id]
+    client.stub_responses(:head_object, 'NotFound')
+    refute provider.reference_exists?(reference)
+    client.stub_responses(:head_object, 'AccessDenied')
+    assert_raises(Aws::S3::Errors::AccessDenied) { provider.reference_exists?(reference) }
+  end
+
+  def test_sftp_existence_checks_reject_links_and_distinguish_missing_from_permissions
+    require 'net/sftp'
+    link = false
+    code = nil
+    attributes = Object.new
+    attributes.define_singleton_method(:symlink?) { link }
+    session = Object.new
+    session.define_singleton_method(:lstat!) do |_path|
+      raise Net::SFTP::StatusException.new(Struct.new(:code, :message).new(code, 'fixture')) if code
+      attributes
+    end
+    provider = nil
+    Net::SFTP.stub(:start, session) do
+      provider = RedmineBackup::Providers::Sftp.new({ 'host' => 'fixture', 'username' => 'fixture',
+        'known_hosts' => '/fixture/known_hosts', 'directory' => '/backups', 'auth_method' => 'password', 'password' => 'fixture' })
+    end
+    assert provider.reference_exists?('path' => '/backups/fixture.tar.gz')
+    link = true
+    assert_raises(RedmineBackup::Error) { provider.reference_exists?('path' => '/backups/fixture.tar.gz') }
+    link, code = false, 2
+    refute provider.reference_exists?('path' => '/backups/fixture.tar.gz')
+    code = 3
+    assert_raises(Net::SFTP::StatusException) { provider.reference_exists?('path' => '/backups/fixture.tar.gz') }
+    assert_raises(RedmineBackup::Error) { provider.reference_exists?('path' => '/outside/fixture.tar.gz') }
+  end
+
   def test_google_upload_places_plain_component_name_inside_prepared_backup_folder
     name = 'test-20261115T143000Z-abcdef123456'
     target = { 'provider' => 'google_drive', 'access_token' => 'fixture', 'expires_at' => Time.now.to_i + 3600, 'folder_id' => 'destination' }

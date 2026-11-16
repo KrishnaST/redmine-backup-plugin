@@ -48,13 +48,23 @@
 </div>
 <h3>Backup history</h3>
 <p class="backup-hint">Retry backup is available only when the latest run has a failed upload. It takes a fresh full backup using current settings, then uploads it.</p>
+<p class="backup-hint">Delete removes remote and local backup copies, retaining history. The latest complete upload and latest verified copy at each destination remain protected. Deletion runs in the worker, respects provider retention locks, and keeps local files when remote deletion cannot be confirmed.</p>
+<% if !@recovery && @deletable_run_ids.any? %>
+  <%= button_to 'Delete older backups from storage', redmine_backup_delete_path(scope: 'older'), method: :post, data: { confirm: 'Delete all eligible older backups from remote storage and local disk? The latest successful uploads are protected. This cannot be undone.' } %>
+<% end %>
 <%= button_to 'Clear backup history', redmine_backup_clear_history_path(category: 'backups'), method: :post, data: { confirm: 'Clear completed backup history from this list? Backup files and retention records are preserved.' } %>
 <table class="list backup-history"><thead><tr><th>Run</th><th>Date</th><th>Capture / upload result</th><th>Primary</th><th>Secondary</th><th>Actions</th></tr></thead><tbody>
   <% @runs.each do |run| %><tr>
     <td><%= run['id'] %><% if run['coverage_changed'] %><br><strong>Coverage changed</strong><% end %></td><td><%= run['date'] %></td>
     <td><%= run['captured'] ? 'Backup captured' : 'Backup not captured' %><br><strong><%= RedmineBackup::RunStatusService.upload_label(run) %></strong><%= run['local_deleted'] ? ' · local removed' : '' %><br><%= run['error'] %></td>
-    <% %w[primary secondary].each do |slot| %><% state = run.fetch('destinations', {})[slot] %><td><%= state ? (state['verified'] ? 'Verified' : 'Pending / failed') : (slot == 'secondary' && !run['secondary_mode'] ? 'Disabled' : 'Not attempted') %><br><%= state && state['error'] %><br>Protection: <%= state && state['protection'] %><br>Cleanup: <%= state && state['cleanup'] %></td><% end %>
-    <td><% if run['id'] == @latest_run_id && RedmineBackup::RunStatusService.retryable?(run) %><%= button_to 'Retry backup', redmine_backup_actions_path(kind: 'retry_upload', run_id: run['id']), method: :post %><% end %></td>
+    <% %w[primary secondary].each do |slot| %><% state = run.fetch('destinations', {})[slot] %><td><%= state ? (state['deleted_at'] ? 'Deleted from storage' : (state['verified'] ? 'Verified' : 'Pending / failed')) : (slot == 'secondary' && !run['secondary_mode'] ? 'Disabled' : 'Not attempted') %><br><%= state && state['error'] %><br>Protection: <%= state && state['protection'] %><br>Cleanup: <%= state && state['cleanup'] %></td><% end %>
+    <td><% if run['id'] == @latest_run_id && RedmineBackup::RunStatusService.retryable?(run) %><%= button_to 'Retry backup', redmine_backup_actions_path(kind: 'retry_upload', run_id: run['id']), method: :post %><% end %>
+      <% if @protected_run_ids.include?(run['id']) %><strong>Protected recovery point</strong><% end %>
+      <% if @pending_deletion_ids.include?(run['id']) %><strong>Deletion queued / running</strong><% end %>
+      <% if run['deletion'] %><br><%= run['deletion']['error'] %><% end %>
+      <% if !@recovery && @deletable_run_ids.include?(run['id']) %><%= button_to 'Delete backup from storage', redmine_backup_delete_path(run_id: run['id']), method: :post, data: { confirm: 'Delete this backup from remote storage and local disk? History is retained. This cannot be undone.' } %><% end %>
+      <% if run['deletion'] %><br>Deletion: <%= run['deletion']['status'] %><br><%= run['deletion']['error'] %><% end %>
+    </td>
   </tr><% end %>
 </tbody></table>
 <details><summary>Recent audit history</summary><%= button_to 'Clear audit history', redmine_backup_clear_history_path(category: 'audit'), method: :post, data: { confirm: 'Clear audit history? The clearing action itself will be recorded.' } %><table class="list"><tbody><% @audit.each do |event| %><tr><td><%= event['at'] %></td><td><%= event['event'] %></td><td><%= event['actor'] %></td><td><%= event['run'] %></td></tr><% end %></tbody></table></details>

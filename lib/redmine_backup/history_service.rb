@@ -23,6 +23,7 @@ module RedmineBackup
         when 'backups'
           protected_ids = @store.read('queue', []).map { |job| job['run_id'] }
           protected_ids << @store.read('active_job')['run_id']
+          protected_ids.concat((@store.read('queue', []) + [@store.read('active_job')]).flat_map { |job| Array(job['run_ids']) })
           hidden = @store.read('history_visibility')
           @store.read('runs', []).each do |run|
             next unless TERMINAL_STATUSES.include?(run['status']) && !protected_ids.include?(run['id'])

@@ -1,5 +1,6 @@
 # Documentation index
 
+- [CC0 dedication and third-party licensing scope](LICENSING.md)
 - [Full current plan](PLAN.md)
 - [Offline HTML guide](index.html)
 - [Installation and worker supervision](INSTALLATION.md)

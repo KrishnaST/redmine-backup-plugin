@@ -103,6 +103,65 @@ class RedmineBackupIntegrationTest < ActionDispatch::IntegrationTest
     assert_equal 28, Setting.plugin_redmine_backup_plugin['remote_keep_dates']
   end
 
+  def deletion_fixture
+    runtime = RedmineBackup::Runtime.new
+    installation = runtime.store.read('metadata')['installation_id']
+    records = (1..2).map do |day|
+      { 'id' => "2026110#{day}T143000Z-abcdef123456", 'date' => "2026-11-0#{day}",
+        'completed_at' => "2026-11-0#{day}T14:30:00Z", 'status' => 'complete', 'captured' => true,
+        'installation_id' => installation, 'config' => runtime.config.values,
+        'destinations' => { 'primary' => { 'verified' => true } } }
+    end
+    runtime.store.write('runs', records)
+    [runtime, records]
+  end
+
+  def test_admin_can_queue_deletion_only_for_unprotected_backups
+    runtime, records = deletion_fixture
+    sign_in
+    get '/admin/backups'
+    assert_response :success
+    assert_select 'form[action*="backups/delete"]', count: 2
+    assert_includes response.body, 'Protected recovery point'
+    post '/admin/backups/delete', params: { run_id: records.last['id'] }
+    follow_redirect!
+    assert_includes response.body, 'BACKUP_PROTECTED_BUSY_OR_NOT_FOUND'
+    assert_empty runtime.store.read('queue', [])
+    post '/admin/backups/delete', params: { scope: 'older' }
+    assert_response :redirect
+    job = runtime.store.read('queue').first
+    assert_equal 'delete_backups', job['kind']
+    assert_equal [records.first['id']], job['run_ids']
+    assert_equal @admin.id.to_s, job['actor']
+    assert_equal 2, runtime.store.read('runs').length
+  end
+
+  def test_non_admin_and_anonymous_users_cannot_queue_deletions
+    runtime, records = deletion_fixture
+    host! 'redmine.example.test'
+    post '/admin/backups/delete', params: { run_id: records.first['id'] }
+    assert_response :redirect
+    @admin.update!(admin: false)
+    sign_in
+    post '/admin/backups/delete', params: { scope: 'older' }
+    assert_response :forbidden
+    assert_empty runtime.store.read('queue', [])
+  end
+
+  def test_recovery_mode_and_missing_scope_cannot_delete_storage
+    runtime, = deletion_fixture
+    sign_in
+    post '/admin/backups/delete'
+    follow_redirect!
+    assert_includes response.body, 'INVALID_DELETION_SCOPE'
+    runtime.store.atomic(File.join(runtime.store.root, 'control', 'RECOVERY'), 'test')
+    post '/admin/backups/delete', params: { scope: 'older' }
+    follow_redirect!
+    assert_includes response.body, 'RECOVERY_MODE_REQUIRES_ACTIVATION'
+    assert_select 'form[action*="backups/delete"]', count: 0
+    assert_empty runtime.store.read('queue', [])
+  end
+
   def test_homepage_summary_is_only_visible_to_administrators
     host! 'redmine.example.test'
     get '/'

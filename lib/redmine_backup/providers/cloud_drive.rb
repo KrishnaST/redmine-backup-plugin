@@ -78,6 +78,14 @@ module RedmineBackup
         folders.delete_empty(reference)
       end
 
+      def reference_exists?(reference)
+        folders.metadata(reference.fetch('id'))
+        true
+      rescue Error => error
+        raise unless error.message == 'PROVIDER_HTTP_404'
+        false
+      end
+
       def upload(path, key, session = {})
         protect!
         upload_location(key)

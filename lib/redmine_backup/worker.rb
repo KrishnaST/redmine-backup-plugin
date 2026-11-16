@@ -161,6 +161,7 @@ module RedmineBackup
       when 'test_notification'
         NotificationService.new(@config, @store).queue({ 'id' => 'notification-test-' + job['id'] }, 'TEST_NOTIFICATION')
       when 'health_check' then setup_health
+      when 'delete_backups' then BackupDeletionService.new(@runtime, provider_factory: @provider_factory).perform!(job)
       end
       @store.audit('job_finished', run: job['run_id'])
       acknowledged = true

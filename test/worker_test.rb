@@ -291,4 +291,21 @@ class WorkerTest < BackupTest
     assert_equal ['current-schedule'], @store.read('queue').map { |job| job['id'] }
   end
 
+  def test_interrupted_deletion_keeps_its_exact_ids_and_is_not_converted_to_a_backup
+    setup_run
+    job = { 'id' => 'delete-job', 'kind' => 'delete_backups', 'run_ids' => [@run['id']], 'actor' => '7' }
+    @store.write('active_job', job)
+    service = Object.new
+    service.define_singleton_method(:perform!) { |_item| raise RedmineBackup::WorkerStoppedException }
+    RedmineBackup::BackupDeletionService.stub(:new, service) do
+      assert_raises(RedmineBackup::WorkerStoppedException) { @worker.send(:execute, job) }
+    end
+    assert_equal job, @store.read('active_job')
+    @worker.send(:recover_interrupted)
+    recovered = @store.read('queue').first
+    assert_equal 'delete_backups', recovered['kind']
+    assert_equal job['run_ids'], recovered['run_ids']
+    assert_equal '7', recovered['actor']
+  end
+
 end

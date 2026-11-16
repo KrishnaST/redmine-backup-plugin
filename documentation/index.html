@@ -82,6 +82,10 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 <td>Gateway</td>
 <td>Excluded</td>
 </tr>
+<tr>
+<td>Manual deletion</td>
+<td>Administrator-confirmed remote and local deletion; latest successful copies protected; durable queue and retained audit/history</td>
+</tr>
 </tbody>
 </table>
 
@@ -239,6 +243,18 @@ pre{padding:16px;background:#eef2f6;overflow:auto;border-radius:5px}code{overflo
 <p>Each count accepts an integer from 1 to 3650. Zero, negative, fractional and malformed values are rejected. Counts represent distinct successful backup dates, not a wall-clock expiry. Multiple successes on one date do not each consume a date slot. Changes take effect during the next successful upload/retention pass, not immediately on Save.</p>
 
 <p>Retention protects unuploaded local sets, local sets awaiting a required redundant copy, the latest local capture, and the last recognized complete remote point. Limits can be exceeded while uploads/locks are pending. Deleting one remote set never means deleting unrelated directories or another destination. Provider versions, deleted-file bins and duplicate markers may consume additional remote storage outside the visible successful-date count.</p>
+
+<h2 id="configuration-label-Manual+storage+deletion"><a href="#configuration-label-Manual+storage+deletion">Manual storage deletion</a></h2>
+
+<p>In Backup history, administrators can choose <strong>Delete backup from storage</strong> for one eligible run, or <strong>Delete older backups from storage</strong> for all currently eligible runs. Both require confirmation and remove remote copies and local payloads; they keep the run/audit history. Clearing history is a separate action and never deletes backup files.</p>
+
+<p>The latest complete verified upload and latest verified copy for each destination identity are always protected, including a secondary whose newest copy is older than primary. If no upload has succeeded, the newest captured local backup is protected instead. Newer failed captures do not displace a successful recovery point. Foreign-installation and in-progress runs are ineligible. Recovery Mode blocks requests and execution. The backend enforces these rules even for a forged request, and checks again when the worker executes.</p>
+
+<p>Requests snapshot the selected run IDs, so a bulk request cannot capture backups created later. Existing one-run locking serializes deletion with capture, upload, configuration changes and retention. The latest protected remote copy’s known payloads/marker must still be present before older remote copies are removed. Missing protected data blocks deletion with a visible error. Storage ownership and object holds are checked before deletion, the completion marker is removed before payloads, and a durable per-object journal supports retries/interrupted-worker recovery. Only empty backup folders are removed; unrelated folder contents are preserved.</p>
+
+<p>Local data is removed only after all recorded remote copies are deleted or reported missing. A failed/locked/unknown remote deletion leaves the local copy intact and displays an error; the same per-run action can retry. Deletion does not use historical credentials or silently follow reconfigured/disabled destinations: reconnect/review the original storage first. Provider versions, recycle bins and uncommitted upload sessions can remain subject to provider lifecycle policies; the plugin deletes known finalized payloads/markers, not unrelated objects or an entire provider account.</p>
+
+<p>The action uses the administrator-only, CSRF-protected <code>POST /admin/backups/delete</code> endpoint. <code>run_id</code> selects a single run; explicit <code>scope=older</code> selects a snapshot of eligible runs. Queued/active deletion IDs are excluded from duplicate requests and history clearing. Raw provider responses and credentials are never displayed or audited.</p>
 
 <h2 id="configuration-label-Secondary+destination"><a href="#configuration-label-Secondary+destination">Secondary destination</a></h2>
 
@@ -910,7 +926,7 @@ pg_restore --list &quot;$BACKUP_ROOT/database.dump&quot; &gt;/dev/null</pre>
 <section id="implementation" aria-label="Implementation"><span id="implementation-top"></span>
 <h1 id="implementation-label-Implementation+coverage"><a href="#implementation-label-Implementation+coverage">Implementation coverage</a></h1>
 
-<p>Current native plugin version: 0.5.0. This describes source implementation, not proof of live provider authorization or a successful restore.</p>
+<p>Current native plugin version: 0.6.0. This describes source implementation, not proof of live provider authorization or a successful restore.</p>
 
 <table role="table">
 <thead>
@@ -955,6 +971,10 @@ pg_restore --list &quot;$BACKUP_ROOT/database.dump&quot; &gt;/dev/null</pre>
 <tr>
 <td>Safe cleanup</td>
 <td>Protected pending copies, ownership/reference checks, per-target history, last good copy, lock deferral</td>
+</tr>
+<tr>
+<td>Manual deletion</td>
+<td>Admin POST/confirmation, one or snapshot-bulk remote/local deletion, latest-success/per-destination protection, protected-copy presence checks, resumable per-object journal and retained result/audit history</td>
 </tr>
 <tr>
 <td>Scheduling and catch-up</td>
@@ -1097,6 +1117,10 @@ pg_restore --list &quot;$BACKUP_ROOT/database.dump&quot; &gt;/dev/null</pre>
 </section>
 <section id="validation" aria-label="Validation"><span id="validation-top"></span>
 <h1 id="validation-label-Validation"><a href="#validation-label-Validation">Validation</a></h1>
+
+<p>Version 0.6.0 local Windows validation on 16 November 2026 passed 224 tests / 884 assertions, with zero failures/errors/skips on Ruby 4.0.9. New cases cover protected latest uploads, request-time bulk snapshots, foreign/in-progress/recovery rejection, destination reconfiguration, retained history, safe local paths, remote holds, protected-object presence, secondary failures, OAuth renewal, already missing objects, marker-first deletion, partial-failure retry and managed-worker interruption/recovery. Provider cases distinguish missing objects from permission failures for Google Drive/Microsoft storage, S3 versions and SFTP, including SFTP symlink rejection. Unit storage operations use isolated local fixtures and fake/stubbed providers; no production backup was deleted.</p>
+
+<p>Three additional 0.6.0 administrator/controller integration cases were added to the disposable Redmine test suite for per-run/bulk controls, anonymous/non-admin rejection, Recovery Mode, protected requests and required scope. Check the exact revision’s CI before deployment. Live provider deletion remains pending installed-instance validation; no production backup was deleted during implementation. Earlier 0.5.x results below are historical evidence rather than validation of manual deletion.</p>
 
 <p>Version 0.5.0 local Windows validation on 15 November 2026 passed 202 tests / 766 assertions, with zero failures/errors/skips on Ruby 4.0.9. New coverage verifies direct TAR.GZ application/attachment/database/metadata contents, Unicode paths, external configuration, checksum validation before and after extraction, gzip CRC and concatenation rejection, missing/unexpected/duplicate/traversal entries, unsafe links, standalone verifier compatibility with older manifests, root-level archive upload naming and retention of mixed historical ZIP/TAR layouts. Capture uses Ruby streaming TAR/Zlib without a nested application archive or a new dependency. Existing packaging choices remain unchanged until explicitly saved as TAR.GZ.</p>
 

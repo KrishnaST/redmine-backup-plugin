@@ -1,6 +1,6 @@
 # Implementation coverage
 
-Current native plugin version: 0.5.0. This describes source implementation, not proof of live provider authorization or a successful restore.
+Current native plugin version: 0.6.0. This describes source implementation, not proof of live provider authorization or a successful restore.
 
 | Requirement | Implementation |
 | --- | --- |
@@ -13,6 +13,7 @@ Current native plugin version: 0.5.0. This describes source implementation, not 
 | Local storage | Private subdirectory of attachment storage by default; editable at first setup, controlled migration for existing history |
 | Retention | Configurable local/default remote/per-target override; 1–3650 distinct successful dates; defaults 3/10 |
 | Safe cleanup | Protected pending copies, ownership/reference checks, per-target history, last good copy, lock deferral |
+| Manual deletion | Admin POST/confirmation, one or snapshot-bulk remote/local deletion, latest-success/per-destination protection, protected-copy presence checks, resumable per-object journal and retained result/audit history |
 | Scheduling and catch-up | Redmine-supervised Ruby child, one manager elected before Rails loads, persistent queue, latest missed slot, explicit pause; settings cache refreshed on every runtime load |
 | Platforms | Linux/macOS POSIX operations and native Windows disk/process/ACL adapters; executable suffixes and path containment adapted per OS |
 | One-run lock | Kernel process lock, heartbeat and interrupted-job reconciliation |

@@ -20,6 +20,18 @@ Each count accepts an integer from 1 to 3650. Zero, negative, fractional and mal
 
 Retention protects unuploaded local sets, local sets awaiting a required redundant copy, the latest local capture, and the last recognized complete remote point. Limits can be exceeded while uploads/locks are pending. Deleting one remote set never means deleting unrelated directories or another destination. Provider versions, deleted-file bins and duplicate markers may consume additional remote storage outside the visible successful-date count.
 
+## Manual storage deletion
+
+In Backup history, administrators can choose **Delete backup from storage** for one eligible run, or **Delete older backups from storage** for all currently eligible runs. Both require confirmation and remove remote copies and local payloads; they keep the run/audit history. Clearing history is a separate action and never deletes backup files.
+
+The latest complete verified upload and latest verified copy for each destination identity are always protected, including a secondary whose newest copy is older than primary. If no upload has succeeded, the newest captured local backup is protected instead. Newer failed captures do not displace a successful recovery point. Foreign-installation and in-progress runs are ineligible. Recovery Mode blocks requests and execution. The backend enforces these rules even for a forged request, and checks again when the worker executes.
+
+Requests snapshot the selected run IDs, so a bulk request cannot capture backups created later. Existing one-run locking serializes deletion with capture, upload, configuration changes and retention. The latest protected remote copy's known payloads/marker must still be present before older remote copies are removed. Missing protected data blocks deletion with a visible error. Storage ownership and object holds are checked before deletion, the completion marker is removed before payloads, and a durable per-object journal supports retries/interrupted-worker recovery. Only empty backup folders are removed; unrelated folder contents are preserved.
+
+Local data is removed only after all recorded remote copies are deleted or reported missing. A failed/locked/unknown remote deletion leaves the local copy intact and displays an error; the same per-run action can retry. Deletion does not use historical credentials or silently follow reconfigured/disabled destinations: reconnect/review the original storage first. Provider versions, recycle bins and uncommitted upload sessions can remain subject to provider lifecycle policies; the plugin deletes known finalized payloads/markers, not unrelated objects or an entire provider account.
+
+The action uses the administrator-only, CSRF-protected `POST /admin/backups/delete` endpoint. `run_id` selects a single run; explicit `scope=older` selects a snapshot of eligible runs. Queued/active deletion IDs are excluded from duplicate requests and history clearing. Raw provider responses and credentials are never displayed or audited.
+
 ## Secondary destination
 
 Disabled by default: no secondary settings/checks/uploads/alerts are required. When enabled choose:

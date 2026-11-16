@@ -20,6 +20,7 @@ This is the current scope of the native Ruby implementation. Installation/config
 | Database credentials | Derived from Redmine's resolved primary configuration |
 | Alerts | Existing Redmine mail delivery; selected existing users/groups |
 | Gateway | Excluded |
+| Manual deletion | Administrator-confirmed remote and local deletion; latest successful copies protected; durable queue and retained audit/history |
 
 ## Recovery coverage
 
